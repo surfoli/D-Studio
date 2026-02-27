@@ -1,24 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## D³ Studio – Prompt-to-Website Vibe Coding
 
-## Getting Started
+D³ Studio ist jetzt eine Prompt-basierte Website-Builder-App:
 
-First, run the development server:
+1. Prompt eingeben (oben in der App)
+2. Website per Anthropic generieren
+3. Blöcke und Texte direkt im Canvas bearbeiten
+
+## Setup
+
+### 1) Env setzen
+
+In `.env.local`:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+ANTHROPIC_API_KEY=dein_anthropic_key
+ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> Falls du den Key änderst: Dev-Server neu starten.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2) Dev starten
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
+
+Dann öffnen: [http://localhost:3000](http://localhost:3000)
+
+## Usage
+
+- Oben im Prompt-Feld die gewünschte Website beschreiben.
+- `Website erstellen` klicken (oder `Cmd/Ctrl + Enter`).
+- Im Canvas Text anklicken, danach im Toolbar-Panel direkt ändern.
+- Über Block/Style/Layout kannst du Varianten und Design weiter anpassen.
 
 ## Learn More
 
