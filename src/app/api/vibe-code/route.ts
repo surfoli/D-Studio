@@ -1,12 +1,27 @@
 import { NextRequest } from "next/server";
-import { buildVibeCodeSystemPrompt, buildFileContext, type VibeCodeFile } from "@/lib/vibe-code";
+import { buildVibeCodeSystemPrompt, buildFileContext, type VibeCodeFile, type ChatLanguage, type ChatRoleId, type UserLevelId } from "@/lib/vibe-code";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
+interface ImageBlock {
+  data: string;
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
+interface RequestMessage {
+  role: "user" | "assistant";
+  content: string;
+  images?: ImageBlock[];
+}
+
 interface RequestBody {
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: RequestMessage[];
   currentFiles?: VibeCodeFile[];
   model?: string;
+  language?: string;
+  roles?: string[];
+  userLevel?: string;
+  customLevelPrompt?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -29,7 +44,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { messages, currentFiles, model } = body;
+  const { messages, currentFiles, model, language, roles, userLevel, customLevelPrompt } = body;
 
   if (!messages || messages.length === 0) {
     return new Response(
@@ -38,20 +53,51 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Build system prompt with current file context
-  let systemPrompt = buildVibeCodeSystemPrompt();
+  const activeRoles = (roles && roles.length > 0 ? roles : ["developer", "designer"]) as ChatRoleId[];
+  const level = (userLevel || "beginner") as UserLevelId;
+
+  let systemPrompt = buildVibeCodeSystemPrompt(
+    (language as ChatLanguage) || "de",
+    activeRoles,
+    level,
+    customLevelPrompt,
+  );
 
   if (currentFiles && currentFiles.length > 0) {
     systemPrompt += "\n\n" + buildFileContext(currentFiles);
   }
 
-  // Prepare messages for Anthropic
-  const anthropicMessages = messages.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-  }));
+  // Prepare messages for Anthropic (support image content blocks)
+  const anthropicMessages = messages.map((msg) => {
+    // If message has images, build a content array with image + text blocks
+    if (msg.images && msg.images.length > 0 && msg.role === "user") {
+      const contentBlocks: Array<
+        | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+        | { type: "text"; text: string }
+      > = [];
 
-  const selectedModel = model?.trim() || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+      for (const img of msg.images) {
+        contentBlocks.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: img.mediaType,
+            data: img.data,
+          },
+        });
+      }
+
+      if (msg.content) {
+        contentBlocks.push({ type: "text", text: msg.content });
+      }
+
+      return { role: msg.role, content: contentBlocks };
+    }
+
+    return { role: msg.role, content: msg.content };
+  });
+
+  const selectedModel = model?.trim() || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
   const anthropicResponse = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -62,8 +108,8 @@ export async function POST(req: NextRequest) {
     },
     body: JSON.stringify({
       model: selectedModel,
-      max_tokens: 16384,
-      temperature: 0.4,
+      max_tokens: 32768,
+      temperature: 0.3,
       stream: true,
       system: systemPrompt,
       messages: anthropicMessages,

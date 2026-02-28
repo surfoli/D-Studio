@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   DesignTokens,
@@ -27,12 +27,12 @@ import { useProjectHistory } from "@/lib/hooks/use-project-history";
 import * as pm from "@/lib/project-mutations";
 
 import Canvas from "@/components/editor/Canvas";
-import TopBar, { AppMode } from "@/components/editor/TopBar";
+import TopBar, { AppMode, type ProjectInfo } from "@/components/editor/TopBar";
 import AIPanel from "@/components/editor/AIPanel";
 import SettingsPanel from "@/components/editor/SettingsPanel";
 
 // Lazy-load heavy mode components for faster initial render
-const PlanningMode = lazy(() => import("@/components/editor/PlanningMode"));
+const MindPalace = lazy(() => import("@/components/editor/MindPalace"));
 const PreviewMode = lazy(() => import("@/components/editor/PreviewMode"));
 const VibeCodingMode = lazy(() => import("@/components/editor/VibeCodingMode"));
 
@@ -620,6 +620,29 @@ export default function Home() {
     }
   }, [project]);
 
+  // Project list for switcher — refresh after save
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const projectList: ProjectInfo[] = useMemo(
+    () => loadProjects().map((p) => ({ id: p.id, name: p.name, savedAt: p.savedAt })),
+    [isSaved, hasGenerated]
+  );
+
+  const handleProjectSwitch = useCallback((id: string) => {
+    const found = loadProjects().find((p) => p.id === id);
+    if (!found) return;
+    savedProjectIdRef.current = found.id;
+    setActiveProjectId(found.id);
+    replace(found.project);
+    setPlanningDocs(found.planningDocs || []);
+    setGeneratedFiles(found.generatedFiles || []);
+    setHasGenerated(true);
+  }, [replace]);
+
+  const handleGithubConnect = useCallback(() => {
+    // Placeholder — will open GitHub OAuth flow
+    window.open("https://github.com/apps", "_blank");
+  }, []);
+
   const isDark = settings.theme === "dark";
   const appBg = isDark ? "#0d0d0d" : "#f7f7f7";
 
@@ -640,6 +663,10 @@ export default function Home() {
         hasGenerated={hasGenerated}
         projectName={hasGenerated ? project.name : ""}
         theme={settings.theme}
+        projects={projectList}
+        onProjectSwitch={handleProjectSwitch}
+        onGithubConnect={handleGithubConnect}
+        autoSaveEnabled={settings.autoSave}
       />
 
       {/* ── Export message toast ── */}
@@ -748,7 +775,7 @@ export default function Home() {
             </motion.div>
           )}
 
-          {/* PLANNING MODE */}
+          {/* MIND PALACE MODE */}
           {mode === "planning" && (
             <motion.div
               key="planning"
@@ -759,10 +786,8 @@ export default function Home() {
               className="h-full"
             >
               <Suspense fallback={<div className="h-full flex items-center justify-center opacity-40 text-sm">Laden…</div>}>
-                <PlanningMode
-                  onApplyBlueprint={handleApplyBlueprint}
+                <MindPalace
                   theme={settings.theme}
-                  aiModel={settings.aiModel}
                 />
               </Suspense>
             </motion.div>

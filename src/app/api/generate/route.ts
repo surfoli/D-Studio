@@ -390,7 +390,7 @@ export async function POST(req: NextRequest) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: selectedModel || process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest",
+      model: selectedModel || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
       max_tokens: 4096,
       temperature: 0.8,
       stream: true,
