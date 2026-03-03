@@ -262,6 +262,7 @@ interface Props {
 
 export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", canvasBackground, userId, brief, onBriefChange, onSwitchToDesign, projectId: centralProjectId, projectName, sharedMessages, sharedIsStreaming, sharedStreamingText, onSharedMessagesChange }: Props) {
   const isDark = theme === "dark";
+  const isCentralProjectMode = Boolean(centralProjectId);
   const t = vibeTheme(theme);
 
   const bg = "var(--d3-bg)";
@@ -383,8 +384,27 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
   useEffect(() => {
     if (!centralProjectId) return;
     setActiveProjectId(centralProjectId);
+    setProjects((prev) => {
+      const existing = prev.find((p) => p.id === centralProjectId);
+      const normalizedName = projectName?.trim() || existing?.name || "Mein Projekt";
+      if (existing) {
+        if (existing.name === normalizedName) return prev;
+        return prev.map((p) => (p.id === centralProjectId ? { ...p, name: normalizedName } : p));
+      }
+      const nowIso = new Date().toISOString();
+      return [
+        {
+          id: centralProjectId,
+          name: normalizedName,
+          description: "Zentrales Projekt",
+          status: "active",
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+      ];
+    });
     setLoading(false);
-  }, [centralProjectId]);
+  }, [centralProjectId, projectName]);
 
   // ── Load projects (only when NOT managed centrally) ──
   useEffect(() => {
@@ -523,6 +543,8 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
   }, [editingCard, editContent, saveFile]);
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
+  const displayProjectName = projectName ?? activeProject?.name ?? "Mein Projekt";
+  const hasProject = Boolean(activeProjectId || centralProjectId);
 
   const switchProject = useCallback((id: string) => {
     setActiveProjectId(id);
@@ -561,7 +583,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     setAutoFillStream("");
     setAutoFillFilledCards([]);
 
-    const projectName = projects.find((p) => p.id === activeProjectId)?.name ?? "Mein Projekt";
+    const currentProjectName = displayProjectName;
     const emptyCards = CARD_CONFIGS.filter((c) => {
       const content = d3Files.find((f) => f.path === c.path)?.content ?? "";
       return !content.trim();
@@ -585,7 +607,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
       .map((c) => `### ${c.path}\nTitel: ${c.title}\nBeschreibung: ${c.description}\nFormat:\n${c.placeholder.split("\n").slice(0, 8).join("\n")}`)
       .join("\n\n");
 
-    const prompt = `Du bist ein Webdesign-Stratege. Analysiere den bestehenden Code des Projekts "${projectName}" und fülle die folgenden leeren Plan-Dateien aus.
+    const prompt = `Du bist ein Webdesign-Stratege. Analysiere den bestehenden Code des Projekts "${currentProjectName}" und fülle die folgenden leeren Plan-Dateien aus.
 
 ## Bestehender Code:
 ${codeContext || "Kein Code vorhanden."}
@@ -670,7 +692,7 @@ Deutsch. Professionell. Konkret.`;
       setIsAutoFilling(false);
       setAutoFillDismissed(true);
     }
-  }, [isAutoFilling, activeProjectId, projects, d3Files, allFiles, aiModel, saveFile]);
+  }, [isAutoFilling, activeProjectId, d3Files, allFiles, aiModel, saveFile, displayProjectName]);
 
   // ── Reference image upload ──
   const handleRefImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -727,7 +749,7 @@ Deutsch. Professionell. Konkret.`;
         const fc = d3Files.find((f) => f.path === c.path)?.content?.trim();
         return `${c.path} (${c.title}): ${fc ? "ausgefuellt" : "LEER"}`;
       }).join("\n");
-      const projectContext = `Du bist im PLAN-MODUS von D3 Studio.\nProjekt: "${activeProject?.name ?? ""}"\nHasCode: ${allFiles.filter((f) => !f.path.startsWith(".d3/")).length > 0 ? "Ja" : "Nein"}\nKarten-Status:\n${planContext}\n\nDu kannst Plan-Karten ausfuellen indem du Dateien im Format ===FILE: .d3/DATEI.md=== ... ===END=== zurueckgibst. Der User sieht dich als WhatsApp-aehnlichen Assistenten. Sei kurz, freundlich, professionell.`;
+      const projectContext = `Du bist im PLAN-MODUS von D3 Studio.\nProjekt: "${displayProjectName}"\nHasCode: ${allFiles.filter((f) => !f.path.startsWith(".d3/")).length > 0 ? "Ja" : "Nein"}\nKarten-Status:\n${planContext}\n\nDu kannst Plan-Karten ausfuellen indem du Dateien im Format ===FILE: .d3/DATEI.md=== ... ===END=== zurueckgibst. Der User sieht dich als WhatsApp-aehnlichen Assistenten. Sei kurz, freundlich, professionell.`;
 
       const res = await authFetch("/api/vibe-code", {
         method: "POST",
@@ -827,7 +849,7 @@ Deutsch. Professionell. Konkret.`;
       setIsStreaming(false);
       setStreamingText("");
     }
-  }, [inputText, isStreaming, aiModel, allFiles, chatLang, userLevel, setMessages, setInputText, setIsStreaming, setStreamingText, saveFile]);
+  }, [inputText, isStreaming, aiModel, allFiles, chatLang, userLevel, setMessages, setInputText, setIsStreaming, setStreamingText, saveFile, displayProjectName, d3Files]);
 
   // ── Chat: Retry ──
   const handleRetry = useCallback((msgId: string) => {
@@ -863,10 +885,10 @@ Deutsch. Professionell. Konkret.`;
       }
     }
     const spec = sections.join("\n\n---\n\n");
-    const projectName = activeProject?.name ?? "Mein Projekt";
+    const exportProjectName = displayProjectName;
 
     if (target === "universal") {
-      return `# ${projectName} — Design & Projekt Spezifikation\n\nGeneriert mit D³ Studio\n\n${spec}`;
+      return `# ${exportProjectName} — Design & Projekt Spezifikation\n\nGeneriert mit D³ Studio\n\n${spec}`;
     }
     if (target === "lovable") {
       return `Baue eine Website basierend auf folgender Spezifikation.\nHalte dich EXAKT an die Farben, Fonts, Seitenstruktur und Texte.\n\n${spec}\n\nWichtig:\n- Verwende React + Tailwind CSS\n- Responsive: Mobile-first\n- Alle Texte wie angegeben verwenden\n- DSGVO: Impressum + Datenschutz Seiten`;
@@ -875,8 +897,8 @@ Deutsch. Professionell. Konkret.`;
       return `Erstelle diese Website. Nutze die exakten Design-Vorgaben.\n\n${spec}\n\nTechnische Hinweise:\n- Keine nativen Node.js Module (WebContainer)\n- Supabase fuer Auth falls Login noetig\n- Deploy direkt ueber Bolt`;
     }
     // cursor
-    return `# .cursorrules\n\nDu baust eine Website fuer "${projectName}".\nLies die folgenden Spezifikationen und halte dich exakt daran.\n\n${spec}`;
-  }, [getFileContent, activeProject]);
+    return `# .cursorrules\n\nDu baust eine Website fuer "${exportProjectName}".\nLies die folgenden Spezifikationen und halte dich exakt daran.\n\n${spec}`;
+  }, [getFileContent, displayProjectName]);
 
   const handleExport = useCallback((target: "universal" | "lovable" | "bolt" | "cursor") => {
     const spec = buildExportSpec(target);
@@ -890,12 +912,12 @@ Deutsch. Professionell. Konkret.`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${activeProject?.name ?? "d3-spec"}-${target}.md`;
+      a.download = `${displayProjectName || "d3-spec"}-${target}.md`;
       a.click();
       URL.revokeObjectURL(url);
       setShowExportMenu(false);
     });
-  }, [buildExportSpec, activeProject]);
+  }, [buildExportSpec, displayProjectName]);
 
   const stats = useMemo(() => {
     const todos = parseTodos(getFileContent(".d3/TODOS.md"));
@@ -916,7 +938,7 @@ Deutsch. Professionell. Konkret.`;
     );
   }
 
-  if (projects.length === 0) {
+  if (!isCentralProjectMode && projects.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4" style={{ background: bg }}>
         <FileText size={40} style={{ color: canvasTextFaint }} />
@@ -941,7 +963,7 @@ Deutsch. Professionell. Konkret.`;
               style={{ cursor: centralProjectId ? "default" : "pointer", opacity: centralProjectId ? 0.8 : 1 }}
             >
               <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--d3-text)" }}>
-                {projectName ?? activeProject?.name ?? "Projekt waehlen"}
+                {displayProjectName}
               </span>
               {!centralProjectId && <ChevronDown size={10} style={{ color: "var(--d3-text)", opacity: 0.4, transform: showProjectPicker ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} />}
             </button>
@@ -1068,7 +1090,7 @@ Deutsch. Professionell. Konkret.`;
         {/* Cards */}
         <div className="flex-1 overflow-y-auto px-8 py-6 pb-24">
           {/* Nike-style project title — click to rename */}
-          {(activeProject || projectName) && (
+          {hasProject && (
             <div className="max-w-[1400px] mx-auto mb-8 select-none relative" style={{ padding: "16px 8px" }}>
               <CornerLines isDark={isDark} />
               <div className="flex items-end gap-6">
@@ -1098,9 +1120,9 @@ Deutsch. Professionell. Konkret.`;
                   />
                 ) : (
                   <h1
-                    onClick={startRenaming}
-                    className="cursor-pointer hover:opacity-70 transition-opacity"
-                    title="Klicken zum Umbenennen"
+                    onClick={!isCentralProjectMode ? startRenaming : undefined}
+                    className={!isCentralProjectMode ? "cursor-pointer hover:opacity-70 transition-opacity" : ""}
+                    title={!isCentralProjectMode ? "Klicken zum Umbenennen" : undefined}
                     style={{
                       fontSize: "clamp(3rem, 8vw, 7rem)",
                       fontWeight: 900,
@@ -1112,7 +1134,7 @@ Deutsch. Professionell. Konkret.`;
                       fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif",
                     }}
                   >
-                    {projectName ?? activeProject?.name}
+                    {displayProjectName}
                   </h1>
                 )}
                 <div style={{ paddingBottom: "0.5rem" }}>
@@ -1141,7 +1163,7 @@ Deutsch. Professionell. Konkret.`;
           )}
 
           {/* Smart AI suggestion — WhatsApp-style bubble */}
-          {activeProject && !autoFillDismissed && !isAutoFilling && stats.filledCards < stats.totalCards && (
+          {hasProject && !autoFillDismissed && !isAutoFilling && stats.filledCards < stats.totalCards && (
             <motion.div
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1161,8 +1183,8 @@ Deutsch. Professionell. Konkret.`;
                     </div>
                     <p className="text-[13px] leading-relaxed mb-4" style={{ color: "var(--d3-text)" }}>
                       {allFiles.filter((f) => !f.path.startsWith(".d3/")).length > 0
-                        ? <>Ich sehe, dass <strong>{activeProject.name}</strong> bereits Code hat. Soll ich die Plan-Karten automatisch aus dem bestehenden Code ausfuellen? <span style={{ opacity: 0.5 }}>(Farben, Schriften, Beschreibung, Zielgruppe, Todos)</span></>
-                        : <>Willkommen bei <strong>{activeProject.name}</strong>! Soll ich alle Plan-Karten mit professionellen Inhalten ausfuellen?</>
+                        ? <>Ich sehe, dass <strong>{displayProjectName}</strong> bereits Code hat. Soll ich die Plan-Karten automatisch aus dem bestehenden Code ausfuellen? <span style={{ opacity: 0.5 }}>(Farben, Schriften, Beschreibung, Zielgruppe, Todos)</span></>
+                        : <>Willkommen bei <strong>{displayProjectName}</strong>! Soll ich alle Plan-Karten mit professionellen Inhalten ausfuellen?</>
                       }
                     </p>
                     <div className="flex items-center gap-3">
@@ -1309,7 +1331,7 @@ Deutsch. Professionell. Konkret.`;
           <input ref={refFileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden" onChange={handleRefImageUpload} />
 
           {/* ── Weiter zu Design → ── */}
-          {onSwitchToDesign && activeProject && (
+          {onSwitchToDesign && hasProject && (
             <div className="max-w-[1400px] mx-auto mt-8 mb-4">
               <div className="relative" style={{ padding: 4 }}>
                 <div className="relative flex items-center justify-between px-6 py-4" style={{ background: "var(--d3-surface)" }}>
