@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -53,7 +53,7 @@ function buildInspectEditPrompt(req: InspectEditRequest): string {
 }
 
 export async function POST(req: NextRequest) {
-  const limited = checkRateLimit(req, { limit: 20, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.MODERATE);
   if (limited) return limited;
 
   try {

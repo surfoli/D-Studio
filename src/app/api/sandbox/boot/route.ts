@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 /**
  * Streaming boot endpoint: write files → install → dev in one SSE stream.
@@ -9,7 +9,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
  */
 export async function POST(req: NextRequest) {
   // Sandbox boot creates a full VM — very strict limit
-  const limited = checkRateLimit(req, { limit: 3, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.VERY_EXPENSIVE);
   if (limited) return limited;
 
   const { projectId, files } = await req.json() as {

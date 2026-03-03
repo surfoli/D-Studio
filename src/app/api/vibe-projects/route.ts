@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 function getSupabase() {
@@ -11,7 +11,7 @@ function getSupabase() {
 
 // GET /api/vibe-projects — list all vibe-coding projects
 export async function GET(req: NextRequest) {
-  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
 
   const supabase = getSupabase();
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/vibe-projects — create a new vibe-coding project
 export async function POST(req: NextRequest) {
-  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
 
   const supabase = getSupabase();
@@ -73,6 +73,9 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/vibe-projects — rename a project
 export async function PATCH(req: NextRequest) {
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
+  if (limited) return limited;
+
   const supabase = getSupabase();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase nicht konfiguriert." }, { status: 501 });
@@ -106,6 +109,9 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/vibe-projects — delete a project and its files
 export async function DELETE(req: NextRequest) {
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD_AI);
+  if (limited) return limited;
+
   const supabase = getSupabase();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase nicht konfiguriert." }, { status: 501 });

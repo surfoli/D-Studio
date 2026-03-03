@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -27,7 +27,7 @@ export interface FileRecord {
 }
 
 export async function GET(request: NextRequest) {
-  const limited = checkRateLimit(request, { limit: 60, windowMs: 60_000 });
+  const limited = checkRateLimit(request, RATE_LIMITS.STANDARD);
   if (limited) return limited;
 
   if (!supabase) {
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const limited = checkRateLimit(request, { limit: 60, windowMs: 60_000 });
+  const limited = checkRateLimit(request, RATE_LIMITS.STANDARD);
   if (limited) return limited;
 
   if (!supabase) {
@@ -152,6 +152,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const limited = checkRateLimit(request, RATE_LIMITS.STANDARD_AI);
+  if (limited) return limited;
+
   if (!supabase) {
     return NextResponse.json(
       { error: "Supabase not configured" },

@@ -7,11 +7,27 @@
  * https://upstash.com/docs/redis/sdks/ratelimit-ts/overview
  *
  * Usage:
- *   const limited = checkRateLimit(req, { limit: 20, windowMs: 60_000 });
+ *   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
  *   if (limited) return limited; // already a 429 NextResponse, return immediately
  */
 
 import { NextResponse } from "next/server";
+
+/** Named rate limit tiers — use these instead of inline magic numbers. */
+export const RATE_LIMITS = {
+  /** Full sandbox VM creation — very expensive, strict limit */
+  VERY_EXPENSIVE: { limit: 3, windowMs: 60_000 },
+  /** AI agent, deploy, setup-cms */
+  EXPENSIVE: { limit: 5, windowMs: 60_000 },
+  /** GitHub ops, inspect-edit */
+  MODERATE: { limit: 20, windowMs: 60_000 },
+  /** Code generation, design chat */
+  STANDARD_AI: { limit: 30, windowMs: 60_000 },
+  /** File ops, project CRUD */
+  STANDARD: { limit: 60, windowMs: 60_000 },
+  /** Status polling, listing */
+  FREQUENT: { limit: 120, windowMs: 60_000 },
+} as const;
 
 interface RateLimitEntry {
   count: number;
@@ -20,10 +36,12 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-// Clean up expired entries every 60s to prevent unbounded memory growth.
-// In serverless environments this interval may never fire — entries are also
-// lazily evicted inside rateLimit() when the window expires.
-if (typeof setInterval !== "undefined") {
+/** Cap to prevent unbounded memory growth (≈2–3 MB at max). */
+const MAX_STORE_ENTRIES = 50_000;
+
+// Clean up expired entries every 60s.
+// Skipped in test environments where fake timers make setInterval unreliable.
+if (typeof setInterval !== "undefined" && process.env.NODE_ENV !== "test") {
   setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store.entries()) {
@@ -53,6 +71,11 @@ export function rateLimit(
   const entry = store.get(identifier);
 
   if (!entry || now > entry.resetAt) {
+    // Evict oldest entry if store is at capacity before adding new one
+    if (!entry && store.size >= MAX_STORE_ENTRIES) {
+      const firstKey = store.keys().next().value;
+      if (firstKey !== undefined) store.delete(firstKey);
+    }
     store.set(identifier, { count: 1, resetAt: now + windowMs });
     return true;
   }
@@ -70,7 +93,7 @@ export function rateLimit(
  * The Retry-After header reflects the actual windowMs, not a hardcoded value.
  *
  * Usage in an API route:
- *   const limited = checkRateLimit(req, { limit: 30 });
+ *   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
  *   if (limited) return limited;
  */
 export function checkRateLimit(
@@ -112,9 +135,15 @@ export function getRateLimitInfo(
  * Falls back to "unknown" if headers are not available.
  */
 export function getClientIp(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
-    req.headers.get("x-real-ip") ??
-    "unknown"
-  );
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("x-real-ip") ?? "unknown";
+}
+
+/**
+ * Clear the rate limit store — for use in unit tests only.
+ * Ensures tests start with a clean state and don't bleed into each other.
+ */
+export function _clearStoreForTesting(): void {
+  store.clear();
 }

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   buildAgentSystemPrompt,
   buildAgentFixPrompt,
@@ -98,7 +98,7 @@ async function callClaude(
 // ── POST /api/agent ──
 export async function POST(req: NextRequest) {
   // Agent loop is expensive — stricter limit (5 runs/min)
-  const limited = checkRateLimit(req, { limit: 5, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.EXPENSIVE);
   if (limited) return limited;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

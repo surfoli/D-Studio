@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 interface SandboxRequestBody {
   action: "create" | "exec" | "kill" | "write" | "read" | "install" | "dev";
@@ -10,13 +10,8 @@ interface SandboxRequestBody {
 }
 
 export async function POST(req: NextRequest) {
-  const ip = getClientIp(req);
-  if (!rateLimit(ip, { limit: 60, windowMs: 60_000 })) {
-    return NextResponse.json(
-      { error: "Zu viele Sandbox-Anfragen. Bitte warte kurz." },
-      { status: 429, headers: { "Retry-After": "60" } }
-    );
-  }
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
+  if (limited) return limited;
 
   let body: SandboxRequestBody;
   try {
@@ -96,6 +91,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const limited = checkRateLimit(req, RATE_LIMITS.FREQUENT);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
 
@@ -113,6 +111,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD_AI);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
 

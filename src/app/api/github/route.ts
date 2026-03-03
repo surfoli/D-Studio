@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 const GH_API = "https://api.github.com";
 
@@ -168,7 +168,7 @@ async function pushFiles(
 }
 
 export async function POST(req: NextRequest) {
-  const limited = checkRateLimit(req, { limit: 20, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.MODERATE);
   if (limited) return limited;
 
   try {

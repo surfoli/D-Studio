@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { rateLimit, getRateLimitInfo } from "@/lib/rate-limit";
+import { rateLimit, getRateLimitInfo, _clearStoreForTesting } from "@/lib/rate-limit";
 
 // Reset module state between tests by mocking time
 describe("rateLimit", () => {
   beforeEach(() => {
+    _clearStoreForTesting();
     vi.useFakeTimers();
   });
 
@@ -56,6 +57,10 @@ describe("rateLimit", () => {
 });
 
 describe("getRateLimitInfo", () => {
+  beforeEach(() => {
+    _clearStoreForTesting();
+  });
+
   it("returns full remaining and resetAt 0 for new IP", () => {
     const ip = `info-ip-${Math.random()}`;
     const info = getRateLimitInfo(ip, 20);

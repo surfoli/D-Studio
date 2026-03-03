@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 const VERCEL_API = "https://api.vercel.com";
 
@@ -26,7 +26,7 @@ interface VercelFile {
  */
 export async function POST(req: NextRequest) {
   // Deploys are expensive — strict limit
-  const limited = checkRateLimit(req, { limit: 5, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.EXPENSIVE);
   if (limited) return limited;
 
   try {
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
  * GET /api/deploy?id=xxx — Check deployment status
  */
 export async function GET(req: NextRequest) {
-  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
 
   try {
