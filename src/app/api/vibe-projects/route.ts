@@ -10,7 +10,10 @@ function getSupabase() {
 }
 
 // GET /api/vibe-projects — list all vibe-coding projects
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const supabase = getSupabase();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase nicht konfiguriert." }, { status: 501 });

@@ -27,6 +27,9 @@ export interface FileRecord {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = checkRateLimit(request, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   if (!supabase) {
     return NextResponse.json(
       { error: "Supabase not configured" },

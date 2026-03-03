@@ -33,7 +33,9 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-placeholder-for-ci' }}
+          # instrumentation.ts validates env at runtime, not at build time.
+          # A placeholder satisfies any static checks; real key only needed at runtime.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-ant-placeholder-for-ci' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || '' }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || '' }}
 
@@ -58,4 +60,5 @@ jobs:
       - name: Run tests
         run: npm test
         env:
-          ANTHROPIC_API_KEY: sk-placeholder-for-ci
+          # Unit tests make no real API calls — placeholder satisfies env validation.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-ant-placeholder-for-ci' }}

@@ -56,10 +56,12 @@ describe("rateLimit", () => {
 });
 
 describe("getRateLimitInfo", () => {
-  it("returns full remaining for new IP", () => {
+  it("returns full remaining and resetAt 0 for new IP", () => {
     const ip = `info-ip-${Math.random()}`;
     const info = getRateLimitInfo(ip, 20);
     expect(info.remaining).toBe(20);
+    // resetAt: 0 means no active window — avoids returning a past timestamp
+    expect(info.resetAt).toBe(0);
   });
 
   it("returns decreased remaining after requests", () => {
@@ -68,5 +70,7 @@ describe("getRateLimitInfo", () => {
     rateLimit(ip, { limit: 20, windowMs: 60_000 });
     const info = getRateLimitInfo(ip, 20);
     expect(info.remaining).toBe(18);
+    // resetAt should be in the future
+    expect(info.resetAt).toBeGreaterThan(Date.now());
   });
 });

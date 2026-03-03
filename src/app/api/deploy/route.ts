@@ -121,6 +121,9 @@ export async function POST(req: NextRequest) {
  * GET /api/deploy?id=xxx — Check deployment status
  */
 export async function GET(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const token = process.env.VERCEL_TOKEN;
     if (!token) {

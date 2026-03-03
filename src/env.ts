@@ -10,9 +10,11 @@ const envSchema = z.object({
   // ─── Required ─────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
 
-  // ─── Supabase (optional auth) ──────────────────────────────
+  // ─── Supabase (optional auth + server-side DB access) ─────
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  // Server-only key (bypasses RLS) — used by files, vibe-projects, undo-history, setup-cms
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
 
   // ─── E2B Sandbox ──────────────────────────────────────────
   E2B_API_KEY: z.string().min(1).optional(),

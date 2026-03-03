@@ -21,8 +21,8 @@ interface RateLimitEntry {
 const store = new Map<string, RateLimitEntry>();
 
 // Clean up expired entries every 60s to prevent unbounded memory growth.
-// Note: in serverless environments this interval may never fire — that is fine,
-// entries are also lazily evicted in rateLimit() when the window expires.
+// In serverless environments this interval may never fire — entries are also
+// lazily evicted inside rateLimit() when the window expires.
 if (typeof setInterval !== "undefined") {
   setInterval(() => {
     const now = Date.now();
@@ -67,6 +67,8 @@ export function rateLimit(
  * Convenience wrapper: checks the rate limit and returns a ready-to-return
  * 429 NextResponse if blocked, or `null` if the request is allowed.
  *
+ * The Retry-After header reflects the actual windowMs, not a hardcoded value.
+ *
  * Usage in an API route:
  *   const limited = checkRateLimit(req, { limit: 30 });
  *   if (limited) return limited;
@@ -75,17 +77,20 @@ export function checkRateLimit(
   req: Request,
   options: RateLimitOptions = {}
 ): NextResponse | null {
+  const { windowMs = 60_000 } = options;
   const ip = getClientIp(req);
   if (rateLimit(ip, options)) return null;
 
+  const retryAfterSeconds = Math.ceil(windowMs / 1000).toString();
   return NextResponse.json(
     { error: "Zu viele Anfragen. Bitte warte kurz." },
-    { status: 429, headers: { "Retry-After": "60" } }
+    { status: 429, headers: { "Retry-After": retryAfterSeconds } }
   );
 }
 
 /**
- * Get remaining requests for an identifier.
+ * Get remaining requests and reset time for an identifier.
+ * Returns resetAt: 0 when no active window exists (no prior requests).
  */
 export function getRateLimitInfo(
   identifier: string,
@@ -93,7 +98,8 @@ export function getRateLimitInfo(
 ): { remaining: number; resetAt: number } {
   const entry = store.get(identifier);
   if (!entry || Date.now() > entry.resetAt) {
-    return { remaining: limit, resetAt: Date.now() };
+    // No active window — full quota available, no meaningful reset time
+    return { remaining: limit, resetAt: 0 };
   }
   return {
     remaining: Math.max(0, limit - entry.count),
