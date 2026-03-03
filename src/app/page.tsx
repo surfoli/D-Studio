@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Layers, Code2, Clock, Settings, X, ChevronDown, ArrowRight, FolderPlus, ChevronRight, Trash2, Check, Upload, Sparkles, Rocket, FileText } from "lucide-react";
+import { Layers, Code2, Clock, Settings, X, ChevronDown, ArrowRight, FolderPlus, ChevronRight, Trash2, Check, Upload, Sparkles, Rocket, FileText, Star } from "lucide-react";
 import { AppSettings, loadSettings, saveSettings, AI_MODELS } from "@/lib/settings";
 import GlassChat from "@/components/chat/GlassChat";
 import AuthGate, { UserMenu } from "@/components/auth/AuthGate";
@@ -41,6 +41,11 @@ interface ProjectTemplate {
   name: string;
   description: string;
   accent: string;
+  preview: {
+    theme: "light" | "dark";
+    headline: string;
+    chips: string[];
+  };
   createBrief: () => DesignBrief;
   planFiles: Array<{ path: string; content: string }>;
 }
@@ -66,6 +71,11 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
     name: "SaaS Launchpad",
     description: "Für Tools, Apps und Produkt-Launches mit klarem Conversion-Fokus.",
     accent: "#22c55e",
+    preview: {
+      theme: "light",
+      headline: "SaaS Hero + Pricing",
+      chips: ["Hero", "Features", "Pricing"],
+    },
     createBrief: () => {
       const brief = createDesignBrief("SaaS Launchpad");
       brief.style.mood = "clean-saas";
@@ -110,6 +120,11 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
     name: "Agency Portfolio",
     description: "Für Agenturen/Freelancer mit Referenzen, Team und Lead-Formular.",
     accent: "#f59e0b",
+    preview: {
+      theme: "dark",
+      headline: "Editorial Hero + Cases",
+      chips: ["Hero", "Cases", "Kontakt"],
+    },
     createBrief: () => {
       const brief = createDesignBrief("Agency Portfolio");
       brief.style.mood = "editorial-premium";
@@ -149,6 +164,11 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
     name: "E-Commerce Starter",
     description: "Für Produktseiten mit Fokus auf Vertrauen und Kaufabschluss.",
     accent: "#06b6d4",
+    preview: {
+      theme: "light",
+      headline: "Produkt + Reviews",
+      chips: ["Produkt", "Reviews", "CTA"],
+    },
     createBrief: () => {
       const brief = createDesignBrief("E-Commerce Starter");
       brief.style.mood = "modern-commerce";
@@ -229,6 +249,33 @@ function toImportableBrief(value: unknown, fallbackName: string): DesignBrief {
     createdAt: typeof src.createdAt === "number" ? src.createdAt : Date.now(),
     updatedAt: Date.now(),
   };
+}
+
+const LIBRARY_RECENT_KEY = "d3studio.library.recent";
+const LIBRARY_FAVORITES_KEY = "d3studio.library.favorites";
+
+function loadLibraryIds(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === "string" && !!id).slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
+function saveLibraryIds(key: string, ids: string[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(ids.slice(0, 30)));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function touchRecentId(ids: string[], id: string): string[] {
+  return [id, ...ids.filter((x) => x !== id)].slice(0, 30);
 }
 
 // ── Loading Fallback ──
@@ -433,24 +480,70 @@ function formatProjectDate(ts: number): string {
 function LibraryStart({
   projects,
   activeId,
+  recentIds,
+  favoriteIds,
   onContinue,
   onOpenProject,
   onBlankStart,
   onTemplateStart,
   onImport,
+  onDropImportFile,
+  onToggleFavorite,
   importError,
 }: {
   projects: D3Project[];
   activeId: string | null;
+  recentIds: string[];
+  favoriteIds: string[];
   onContinue: () => void;
   onOpenProject: (id: string) => void;
   onBlankStart: () => void;
   onTemplateStart: (templateId: string) => void;
   onImport: () => void;
+  onDropImportFile: (file: File) => void;
+  onToggleFavorite: (id: string) => void;
   importError: string | null;
 }) {
   const sortedProjects = [...projects].sort((a, b) => b.updatedAt - a.updatedAt);
   const activeProject = sortedProjects.find((p) => p.id === activeId) ?? sortedProjects[0] ?? null;
+  const projectById = new Map(sortedProjects.map((p) => [p.id, p]));
+  const recentProjects = recentIds
+    .map((id) => projectById.get(id))
+    .filter((p): p is D3Project => !!p);
+  const favoriteProjects = favoriteIds
+    .map((id) => projectById.get(id))
+    .filter((p): p is D3Project => !!p);
+
+  const [isDragActive, setIsDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+
+  const onDragEnter = useCallback((e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragActive(true);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDragActive(false);
+  }, []);
+
+  const onDrop = useCallback(
+    (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDragActive(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) onDropImportFile(file);
+    },
+    [onDropImportFile]
+  );
 
   return (
     <div
@@ -520,21 +613,28 @@ function LibraryStart({
 
           <button
             onClick={onImport}
+            onDragEnter={onDragEnter}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
             style={{
               borderRadius: 14,
-              border: "1px solid var(--d3-glass-border)",
-              background: "var(--d3-surface)",
+              border: isDragActive ? "1px dashed rgba(34,197,94,0.7)" : "1px solid var(--d3-glass-border)",
+              background: isDragActive ? "rgba(34,197,94,0.10)" : "var(--d3-surface)",
               padding: "14px 14px",
               textAlign: "left",
               cursor: "pointer",
               color: "var(--d3-text)",
+              transition: "all 0.15s",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <Upload size={14} />
               <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>Importieren</span>
             </div>
-            <span style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)" }}>JSON-Backup laden (.json)</span>
+            <span style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)" }}>
+              JSON-Backup laden (.json) oder Datei hierher ziehen
+            </span>
           </button>
 
           {activeProject && (
@@ -565,6 +665,91 @@ function LibraryStart({
           </div>
         )}
 
+        {favoriteProjects.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Star size={14} style={{ color: "#fbbf24" }} />
+              <span style={{ fontSize: "0.82rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--d3-text-secondary)" }}>
+                Favoriten
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              {favoriteProjects.map((p) => (
+                <div key={p.id} style={{ position: "relative" }}>
+                  <button
+                    onClick={() => onOpenProject(p.id)}
+                    style={{
+                      width: "100%",
+                      borderRadius: 14,
+                      border: p.id === activeId ? "1px solid rgba(34,197,94,0.35)" : "1px solid var(--d3-glass-border)",
+                      background: p.id === activeId ? "rgba(34,197,94,0.08)" : "var(--d3-surface)",
+                      padding: "12px 12px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--d3-text)", marginBottom: 4 }}>{p.name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--d3-text-tertiary)" }}>Aktualisiert: {formatProjectDate(p.updatedAt)}</div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(p.id);
+                    }}
+                    title="Favorit entfernen"
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      width: 22,
+                      height: 22,
+                      borderRadius: 999,
+                      border: "1px solid rgba(251,191,36,0.35)",
+                      background: "rgba(251,191,36,0.15)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Star size={12} style={{ color: "#fbbf24", fill: "#fbbf24" }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {recentProjects.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Clock size={14} style={{ color: "var(--d3-text-secondary)" }} />
+              <span style={{ fontSize: "0.82rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--d3-text-secondary)" }}>
+                Zuletzt geöffnet
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              {recentProjects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onOpenProject(p.id)}
+                  style={{
+                    borderRadius: 14,
+                    border: "1px solid var(--d3-glass-border)",
+                    background: "var(--d3-surface)",
+                    padding: "12px 12px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--d3-text)", marginBottom: 4 }}>{p.name}</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--d3-text-tertiary)" }}>Aktualisiert: {formatProjectDate(p.updatedAt)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <FileText size={14} style={{ color: "var(--d3-text-secondary)" }} />
@@ -579,21 +764,56 @@ function LibraryStart({
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
               {sortedProjects.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => onOpenProject(p.id)}
-                  style={{
-                    borderRadius: 14,
-                    border: p.id === activeId ? "1px solid rgba(34,197,94,0.35)" : "1px solid var(--d3-glass-border)",
-                    background: p.id === activeId ? "rgba(34,197,94,0.08)" : "var(--d3-surface)",
-                    padding: "12px 12px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--d3-text)", marginBottom: 4 }}>{p.name}</div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--d3-text-tertiary)" }}>Aktualisiert: {formatProjectDate(p.updatedAt)}</div>
-                </button>
+                <div key={p.id} style={{ position: "relative" }}>
+                  <button
+                    onClick={() => onOpenProject(p.id)}
+                    style={{
+                      width: "100%",
+                      borderRadius: 14,
+                      border: p.id === activeId ? "1px solid rgba(34,197,94,0.35)" : "1px solid var(--d3-glass-border)",
+                      background: p.id === activeId ? "rgba(34,197,94,0.08)" : "var(--d3-surface)",
+                      padding: "12px 12px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--d3-text)", marginBottom: 4 }}>{p.name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--d3-text-tertiary)" }}>Aktualisiert: {formatProjectDate(p.updatedAt)}</div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(p.id);
+                    }}
+                    title={favoriteIds.includes(p.id) ? "Favorit entfernen" : "Zu Favoriten"}
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      width: 22,
+                      height: 22,
+                      borderRadius: 999,
+                      border: favoriteIds.includes(p.id)
+                        ? "1px solid rgba(251,191,36,0.35)"
+                        : "1px solid var(--d3-glass-border)",
+                      background: favoriteIds.includes(p.id)
+                        ? "rgba(251,191,36,0.15)"
+                        : "var(--d3-surface)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Star
+                      size={12}
+                      style={{
+                        color: favoriteIds.includes(p.id) ? "#fbbf24" : "var(--d3-text-tertiary)",
+                        fill: favoriteIds.includes(p.id) ? "#fbbf24" : "transparent",
+                      }}
+                    />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -624,10 +844,47 @@ function LibraryStart({
               >
                 <div style={{ position: "absolute", insetInlineEnd: -30, insetBlockStart: -30, width: 90, height: 90, borderRadius: "50%", background: `${template.accent}22` }} />
                 <div style={{ position: "relative" }}>
+                  <div
+                    style={{
+                      marginBottom: 10,
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      border: "1px solid var(--d3-glass-border)",
+                      background: template.preview.theme === "dark" ? "#0b1220" : "#f8fafc",
+                    }}
+                  >
+                    <div style={{ height: 18, background: template.preview.theme === "dark" ? "#111827" : "#e2e8f0", borderBottom: "1px solid rgba(148,163,184,0.25)" }} />
+                    <div style={{ padding: 8 }}>
+                      <div style={{ height: 8, width: "70%", borderRadius: 4, background: template.accent, marginBottom: 6, opacity: 0.9 }} />
+                      <div style={{ height: 6, width: "85%", borderRadius: 3, background: template.preview.theme === "dark" ? "rgba(226,232,240,0.35)" : "rgba(15,23,42,0.22)", marginBottom: 8 }} />
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
+                        {template.preview.chips.map((chip) => (
+                          <div
+                            key={chip}
+                            style={{
+                              fontSize: "0.5rem",
+                              borderRadius: 999,
+                              padding: "3px 4px",
+                              textAlign: "center",
+                              border: `1px solid ${template.accent}66`,
+                              color: template.preview.theme === "dark" ? "#e5e7eb" : "#334155",
+                              background: `${template.accent}22`,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {chip}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "4px 8px", borderRadius: 999, background: `${template.accent}22`, color: template.accent, fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Template
+                    Template Preview
                   </div>
                   <div style={{ fontSize: "0.9rem", fontWeight: 800, color: "var(--d3-text)", marginBottom: 4 }}>{template.name}</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--d3-text-tertiary)", marginBottom: 5 }}>{template.preview.headline}</div>
                   <div style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)", lineHeight: 1.5 }}>{template.description}</div>
                 </div>
               </button>
@@ -650,6 +907,8 @@ function AppContent({ user }: { user: User | null }) {
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [showLibrary, setShowLibrary] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [recentProjectIds, setRecentProjectIds] = useState<string[]>(() => loadLibraryIds(LIBRARY_RECENT_KEY));
+  const [favoriteProjectIds, setFavoriteProjectIds] = useState<string[]>(() => loadLibraryIds(LIBRARY_FAVORITES_KEY));
   const importInputRef = useRef<HTMLInputElement>(null);
 
   // ── Central Project State ──
@@ -693,10 +952,13 @@ function AppContent({ user }: { user: User | null }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", settings.theme);
   }, [settings.theme]);
+  useEffect(() => { saveLibraryIds(LIBRARY_RECENT_KEY, recentProjectIds); }, [recentProjectIds]);
+  useEffect(() => { saveLibraryIds(LIBRARY_FAVORITES_KEY, favoriteProjectIds); }, [favoriteProjectIds]);
 
   // ── Switch active project — resets all mode state ──
   const switchProject = useCallback((id: string) => {
     setActiveProjectId(id);
+    setRecentProjectIds((prev) => touchRecentId(prev, id));
     const brief = loadProjectBrief(id);
     setDesignBrief(brief ?? createDesignBrief());
     setProjectId(id);
@@ -738,6 +1000,7 @@ function AppContent({ user }: { user: User | null }) {
   // ── New project ──
   const handleNewProject = useCallback(() => {
     const { project, brief } = createProject();
+    setRecentProjectIds((prev) => touchRecentId(prev, project.id));
     setProjectId(project.id);
     setDesignBrief(brief);
     setProjects(loadProjectList());
@@ -746,6 +1009,12 @@ function AppContent({ user }: { user: User | null }) {
     resetBuildRef.current?.();
     setMode("plan");
   }, [ai]);
+
+  const handleToggleFavoriteProject = useCallback((id: string) => {
+    setFavoriteProjectIds((prev) => (
+      prev.includes(id) ? prev.filter((x) => x !== id) : [id, ...prev]
+    ));
+  }, []);
 
   const handleOpenProjectFromLibrary = useCallback((id: string) => {
     switchProject(id);
@@ -776,6 +1045,7 @@ function AppContent({ user }: { user: User | null }) {
     if (!template) return;
 
     const { project } = createProject(template.name);
+    setRecentProjectIds((prev) => touchRecentId(prev, project.id));
     const brief = template.createBrief();
     brief.name = project.name;
     saveProjectBrief(project.id, brief);
@@ -797,10 +1067,7 @@ function AppContent({ user }: { user: User | null }) {
     importInputRef.current?.click();
   }, []);
 
-  const handleImportFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const importProjectFromFile = useCallback(async (file: File) => {
     try {
       const content = await file.text();
       const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -827,6 +1094,7 @@ function AppContent({ user }: { user: User | null }) {
           : null);
 
       const { project } = createProject(importName);
+      setRecentProjectIds((prev) => touchRecentId(prev, project.id));
       const importedBrief = toImportableBrief(fallbackBriefCandidate, importName);
       importedBrief.name = importName;
       saveProjectBrief(project.id, importedBrief);
@@ -845,14 +1113,26 @@ function AppContent({ user }: { user: User | null }) {
       setLibraryError(null);
     } catch {
       setLibraryError("Import fehlgeschlagen. Bitte nutze ein gültiges JSON-Backup.");
-    } finally {
-      event.target.value = "";
     }
   }, [ai, persistFilesForProject]);
+
+  const handleImportFileDrop = useCallback((file: File) => {
+    void importProjectFromFile(file);
+  }, [importProjectFromFile]);
+
+  const handleImportFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      void importProjectFromFile(file);
+    }
+    event.target.value = "";
+  }, [importProjectFromFile]);
 
   // ── Delete project ──
   const handleDeleteProject = useCallback((id: string) => {
     deleteProject(id);
+    setRecentProjectIds((prev) => prev.filter((x) => x !== id));
+    setFavoriteProjectIds((prev) => prev.filter((x) => x !== id));
     const remaining = loadProjectList();
     setProjects(remaining);
     if (id === projectId) {
@@ -876,11 +1156,15 @@ function AppContent({ user }: { user: User | null }) {
         <LibraryStart
           projects={projects}
           activeId={projectId}
+          recentIds={recentProjectIds}
+          favoriteIds={favoriteProjectIds}
           onContinue={handleContinueFromLibrary}
           onOpenProject={handleOpenProjectFromLibrary}
           onBlankStart={handleBlankStartFromLibrary}
           onTemplateStart={handleTemplateStart}
           onImport={handleImportClick}
+          onDropImportFile={handleImportFileDrop}
+          onToggleFavorite={handleToggleFavoriteProject}
           importError={libraryError}
         />
         <input
