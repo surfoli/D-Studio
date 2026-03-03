@@ -1,5 +1,5 @@
 export interface AppSettings {
-  theme: "light" | "dark";
+  theme: "light" | "dark" | "auto";
   canvasBackground: string;
   aiModel: string;
   cascadeMode: boolean;
@@ -40,11 +40,11 @@ export const AI_MODELS = [
 
 export const CANVAS_BACKGROUNDS = [
   { id: "#f0efed", label: "Warm Grau" },
-  { id: "#e8e8e8", label: "Neutral" },
-  { id: "#1a1a1a", label: "Dunkel" },
-  { id: "#0d1117", label: "GitHub Dark" },
-  { id: "#f5f0eb", label: "Creme" },
+  { id: "#ffffff", label: "Rein Weiß" },
   { id: "#eef2f7", label: "Blau-Grau" },
+  { id: "#1a1a1a", label: "Dunkel" },
+  { id: "#0f172a", label: "Midnight" },
+  { id: "custom", label: "Custom" },
 ];
 
 const SETTINGS_KEY = "d3studio.settings";

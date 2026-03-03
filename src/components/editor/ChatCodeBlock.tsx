@@ -185,8 +185,8 @@ export function CodeBlock({
     <div
       className="rounded-lg overflow-hidden my-1.5"
       style={{
-        background: "#1e1e2e",
-        border: "1px solid rgba(255,255,255,0.06)",
+        background: "var(--vibe-surface, #1e1e2e)",
+        border: "1px solid var(--vibe-border-light, rgba(255,255,255,0.06))",
       }}
     >
       {/* Header with language/filename */}
@@ -194,8 +194,8 @@ export function CodeBlock({
         <div
           className="flex items-center gap-2 px-3 py-1.5"
           style={{
-            background: "rgba(255,255,255,0.03)",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            background: "var(--vibe-hover, rgba(255,255,255,0.03))",
+            borderBottom: "1px solid var(--vibe-border-light, rgba(255,255,255,0.06))",
           }}
         >
           {filename ? (
@@ -304,11 +304,26 @@ export function ChatContent({
         return (
           <span key={idx} style={{ color }} className="whitespace-pre-wrap break-words">
             {inlineParts.map((segment, si) => {
+              // Rollen-Review separator
+              if (segment.trim() === "--- Rollen-Review ---") {
+                return (
+                  <div
+                    key={si}
+                    className="flex items-center gap-2 my-2 py-1"
+                    style={{ borderTop: "1px solid var(--vibe-border, rgba(255,255,255,0.08))" }}
+                  >
+                    <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--vibe-text-faint, rgba(255,255,255,0.25))" }}>
+                      Rollen-Review
+                    </span>
+                    <div className="flex-1 h-px" style={{ background: "var(--vibe-border-light, rgba(255,255,255,0.06))" }} />
+                  </div>
+                );
+              }
               // Bold text
               if (segment.startsWith("**") && segment.endsWith("**")) {
                 const boldText = segment.slice(2, -2);
-                // Check for role prefix in bold (e.g. **Als Dev:**)
-                const roleMatch = boldText.match(/^Als\s+([\w-]+):?$/);
+                // Check for role prefix in bold (e.g. **Als Dev:** or **Dev:**)
+                const roleMatch = boldText.match(/^(?:Als\s+)?([\w-]+):?$/);
                 if (roleMatch) {
                   const roleName = roleMatch[1];
                   const roleColor = ROLE_COLORS[roleName];
@@ -329,15 +344,15 @@ export function ChatContent({
                   }
                 }
                 return (
-                  <strong key={si} className="font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
+                  <strong key={si} className="font-semibold" style={{ color: "var(--vibe-text, rgba(255,255,255,0.95))" }}>
                     {boldText}
                   </strong>
                 );
               }
-              // Role prefix without bold (Als Dev:, Als Designer:)
-              const plainRoleMatch = segment.match(/^(Als\s+)([\w-]+)(:)/);
+              // Role prefix without bold: "Dev: ...", "Als Dev: ...", "Designer: ..."
+              const plainRoleMatch = segment.match(/^(?:Als\s+)?([\w-]+)(:)/);
               if (plainRoleMatch) {
-                const roleName = plainRoleMatch[2];
+                const roleName = plainRoleMatch[1];
                 const roleColor = ROLE_COLORS[roleName];
                 if (roleColor) {
                   const rest = segment.slice(plainRoleMatch[0].length);
@@ -351,7 +366,7 @@ export function ChatContent({
                           border: `1px solid ${roleColor}30`,
                         }}
                       >
-                        Als {roleName}:
+                        {plainRoleMatch[0].replace(/:$/, "")}
                       </span>
                       {rest}
                     </span>
@@ -383,8 +398,8 @@ export function ChatContent({
                     key={si}
                     className="px-1 py-0.5 rounded text-[11px] font-mono"
                     style={{
-                      background: "rgba(255,255,255,0.08)",
-                      color: "#e2e8f0",
+                      background: "var(--vibe-hover, rgba(255,255,255,0.08))",
+                      color: "var(--vibe-text, #e2e8f0)",
                     }}
                   >
                     {inner}

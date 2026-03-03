@@ -1,6 +1,5 @@
 import { Project } from "./types";
 import { NextExportFile } from "./next-export";
-import type { Blueprint } from "./blueprint";
 
 export interface SavedProject {
   id: string;
@@ -15,7 +14,7 @@ export interface PlanningDoc {
   id: string;
   title: string;
   content: string;
-  blueprint?: Blueprint;
+  blueprint?: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
 }

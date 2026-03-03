@@ -1,10 +1,22 @@
-## D³ Studio – Prompt-to-Website Vibe Coding
+## D3 Studio — AI-powered Coding Studio
 
-D³ Studio ist jetzt eine Prompt-basierte Website-Builder-App:
+Beschreibe was du willst. D3 Studio plant, baut, testet und fixt es automatisch — und du kannst das Ergebnis visuell editieren.
 
-1. Prompt eingeben (oben in der App)
-2. Website per Anthropic generieren
-3. Blöcke und Texte direkt im Canvas bearbeiten
+### Modi
+
+- **Plan Mode** — Projektplan erstellen via `.d3/` Karten (PAGES, STYLE, CONTENT, TECHSTACK)
+- **Build Mode** — AI generiert Code, Monaco Editor, E2B Sandbox Preview, Agent Loop
+
+### Features
+
+- **Agent Loop** — Plan → Build → Test → Fix (max 3 Iterationen, vollautomatisch)
+- **Inspect & Edit** — Element in der Preview klicken → Farbe, Font, Größe live ändern → AI schreibt Code um
+- **1-Click Deploy** — Vercel Deploy direkt aus der Preview-Toolbar
+- **AI Chat** — 9 Experten-Rollen, Anthropic Claude via SSE Streaming
+- **E2B Sandbox** — Volle Linux VM, alle Sprachen, echte Preview-URLs
+- **Auth** — Supabase Auth (E-Mail + GitHub OAuth)
+- **GitHub Integration** — Repos laden/speichern
+- **Liquid Glass UI** — Dark/Light/Auto Theme
 
 ## Setup
 
@@ -14,10 +26,14 @@ In `.env.local`:
 
 ```bash
 ANTHROPIC_API_KEY=dein_anthropic_key
-ANTHROPIC_MODEL=claude-3-5-sonnet-latest
-```
+E2B_API_KEY=dein_e2b_key
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 
-> Falls du den Key änderst: Dev-Server neu starten.
+# Optional: Vercel Deploy
+VERCEL_TOKEN=dein_vercel_token
+VERCEL_TEAM_ID=dein_team_id
+```
 
 ### 2) Dev starten
 
@@ -30,22 +46,9 @@ Dann öffnen: [http://localhost:3000](http://localhost:3000)
 
 ## Usage
 
-- Oben im Prompt-Feld die gewünschte Website beschreiben.
-- `Website erstellen` klicken (oder `Cmd/Ctrl + Enter`).
-- Im Canvas Text anklicken, danach im Toolbar-Panel direkt ändern.
-- Über Block/Style/Layout kannst du Varianten und Design weiter anpassen.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. **Plan Mode**: Projekt beschreiben → AI füllt `.d3/` Karten automatisch
+2. **Build Mode**: Chat nutzen oder **Agent Build** klicken → AI generiert komplettes Projekt
+3. Live Preview im integrierten Browser, Terminal zeigt Build-Output
+4. **Inspect**: 🖱️ Button in Preview-Toolbar → Element klicken → Farbe/Font/Größe ändern → "In Code übernehmen"
+5. **Deploy**: 🚀 Button → 1-Click auf Vercel deployen
+6. Iterieren per Chat, Inspect oder erneuter Agent Build

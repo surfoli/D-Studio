@@ -195,7 +195,7 @@ export default function TerminalOutput({
     if (showSearch) searchInputRef.current?.focus();
   }, [showSearch]);
 
-  const border = "rgba(255,255,255,0.07)";
+  const border = "var(--vibe-border, rgba(255,255,255,0.07))";
 
   // ── Render a line with clickable file paths ──
   const renderLineText = useCallback(
@@ -261,7 +261,7 @@ export default function TerminalOutput({
       className="flex items-center gap-1 px-1.5 py-px rounded text-[9px] font-medium transition-all"
       style={{
         background: filter === id ? `${color}20` : "transparent",
-        color: filter === id ? color : "rgba(255,255,255,0.3)",
+        color: filter === id ? color : "var(--vibe-text-faint, rgba(255,255,255,0.3))",
         border: filter === id ? `1px solid ${color}40` : "1px solid transparent",
       }}
     >
@@ -276,7 +276,7 @@ export default function TerminalOutput({
     <div
       style={{
         borderTop: `1px solid ${border}`,
-        background: "#0a0a0a",
+        background: "var(--vibe-panel, #0a0a0a)",
         flexShrink: 0,
       }}
     >
@@ -332,7 +332,7 @@ export default function TerminalOutput({
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
               title="Suchen"
             >
-              <Search size={10} style={{ color: showSearch ? "#60a5fa" : "rgba(255,255,255,0.25)" }} />
+              <Search size={10} style={{ color: showSearch ? "#60a5fa" : "var(--vibe-text-faint, rgba(255,255,255,0.25))" }} />
             </button>
 
             {/* Timestamp toggle */}
@@ -344,7 +344,7 @@ export default function TerminalOutput({
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10 transition-colors"
               title="Zeitstempel anzeigen"
             >
-              <Clock size={10} style={{ color: showTimestamps ? "#60a5fa" : "rgba(255,255,255,0.25)" }} />
+              <Clock size={10} style={{ color: showTimestamps ? "#60a5fa" : "var(--vibe-text-faint, rgba(255,255,255,0.25))" }} />
             </button>
 
             {/* Copy button */}
@@ -466,7 +466,7 @@ export default function TerminalOutput({
                           ? "#fbbf24"
                           : line.type === "info"
                             ? "#60a5fa"
-                            : "rgba(255,255,255,0.55)",
+                            : "var(--vibe-text-secondary, rgba(255,255,255,0.55))",
                   }}
                 >
                   {/* Timestamp */}
@@ -514,10 +514,10 @@ export default function TerminalOutput({
               }}
               className="absolute bottom-2 right-3 flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium transition-all"
               style={{
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.5)",
-                backdropFilter: "blur(8px)",
+                background: "var(--vibe-active, rgba(255,255,255,0.1))",
+                border: "1px solid var(--vibe-border, rgba(255,255,255,0.15))",
+                color: "var(--vibe-text-muted, rgba(255,255,255,0.5))",
+                
               }}
             >
               <ArrowDown size={9} />
@@ -530,16 +530,33 @@ export default function TerminalOutput({
   );
 }
 
+// ── Global terminal log buffer for AI context ──
+const _terminalBuffer: { text: string; type: string }[] = [];
+const MAX_BUFFER = 100;
+
 /**
  * Helper to add a line to the terminal from anywhere.
+ * Also stores in buffer so AI can read terminal context.
  */
 export function terminalLog(
   text: string,
   type: "stdout" | "stderr" | "info" | "error" = "stdout"
 ) {
+  _terminalBuffer.push({ text, type });
+  if (_terminalBuffer.length > MAX_BUFFER) _terminalBuffer.splice(0, _terminalBuffer.length - MAX_BUFFER);
   if (_addLineHandler) _addLineHandler(text, type);
 }
 
 export function terminalClear() {
+  _terminalBuffer.length = 0;
   if (_clearHandler) _clearHandler();
+}
+
+/**
+ * Get recent terminal output as a string for AI context.
+ */
+export function getTerminalContext(maxLines = 30): string {
+  if (_terminalBuffer.length === 0) return "";
+  const recent = _terminalBuffer.slice(-maxLines);
+  return recent.map((l) => `[${l.type}] ${l.text}`).join("\n");
 }
