@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+// Server-side: prefer service role key (bypasses RLS), fall back to anon key
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY &&
+  process.env.SUPABASE_SERVICE_ROLE_KEY !== "your-service-role-key-here"
+    ? process.env.SUPABASE_SERVICE_ROLE_KEY
+    : (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "");
 
 const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
+  supabaseUrl && supabaseKey
+    ? createClient(supabaseUrl, supabaseKey)
     : null;
 
 export interface FileRecord {
@@ -83,16 +88,9 @@ export async function POST(request: NextRequest) {
 
       if (!normalizedPath) continue;
 
-      const existingQuery = supabase
-        .from("project_memory")
-        .select("id, version")
-        .eq("file_name", normalizedPath);
-
-      if (project_id) {
-        existingQuery.eq("project_id", project_id);
-      } else {
-        existingQuery.is("project_id", null);
-      }
+      const existingQuery = project_id
+        ? supabase.from("project_memory").select("id, version").eq("file_name", normalizedPath).eq("project_id", project_id)
+        : supabase.from("project_memory").select("id, version").eq("file_name", normalizedPath).is("project_id", null);
 
       const { data: existing } = await existingQuery.maybeSingle();
 
