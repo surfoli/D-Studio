@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { buildVibeCodeSystemPrompt, buildFileContext, type VibeCodeFile, type ChatLanguage, type ChatRoleId, type UserLevelId, type ChatMode } from "@/lib/vibe-code";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -115,6 +116,14 @@ interface RequestBody {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!rateLimit(ip, { limit: 30, windowMs: 60_000 })) {
+    return new Response(
+      JSON.stringify({ error: "Zu viele Anfragen. Bitte warte kurz." }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60" } }
+    );
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {

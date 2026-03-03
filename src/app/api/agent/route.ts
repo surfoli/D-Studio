@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import {
   buildAgentSystemPrompt,
   buildAgentFixPrompt,
@@ -96,6 +97,15 @@ async function callClaude(
 
 // ── POST /api/agent ──
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  // Agent loop is expensive — stricter limit (5 runs/min)
+  if (!rateLimit(ip, { limit: 5, windowMs: 60_000 })) {
+    return new Response(
+      JSON.stringify({ error: "Zu viele Agent-Anfragen. Bitte warte eine Minute." }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60" } }
+    );
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return new Response(

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 interface SandboxRequestBody {
   action: "create" | "exec" | "kill" | "write" | "read" | "install" | "dev";
@@ -9,6 +10,14 @@ interface SandboxRequestBody {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!rateLimit(ip, { limit: 60, windowMs: 60_000 })) {
+    return NextResponse.json(
+      { error: "Zu viele Sandbox-Anfragen. Bitte warte kurz." },
+      { status: 429, headers: { "Retry-After": "60" } }
+    );
+  }
+
   let body: SandboxRequestBody;
   try {
     body = await req.json();
