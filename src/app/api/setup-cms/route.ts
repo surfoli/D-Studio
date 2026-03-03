@@ -3,6 +3,7 @@
 // Called automatically by Design Mode when CMS sections are added — user never sees this.
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 const TABLE_SCHEMAS: Record<string, string> = {
@@ -64,6 +65,9 @@ const TABLE_SCHEMAS: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 5, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

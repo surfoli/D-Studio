@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 function getSupabase() {
@@ -30,6 +31,9 @@ export async function GET() {
 
 // POST /api/vibe-projects — create a new vibe-coding project
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const supabase = getSupabase();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase nicht konfiguriert." }, { status: 501 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -47,6 +48,9 @@ export async function GET(req: NextRequest) {
 
 // POST: Save undo history (upsert — last 100 entries)
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ ok: false });
 

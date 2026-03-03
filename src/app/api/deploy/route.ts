@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const VERCEL_API = "https://api.vercel.com";
 
@@ -24,6 +25,10 @@ interface VercelFile {
  * POST body: { projectName, files: [{path, content}], framework?, teamId? }
  */
 export async function POST(req: NextRequest) {
+  // Deploys are expensive — strict limit
+  const limited = checkRateLimit(req, { limit: 5, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const token = process.env.VERCEL_TOKEN;
     if (!token) {

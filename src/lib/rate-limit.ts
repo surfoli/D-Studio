@@ -1,11 +1,17 @@
 /**
  * In-memory rate limiter for API routes.
- * Resets on server restart — for production use Upstash Redis instead.
+ *
+ * ⚠️  Limitation: State resets on server restart and does NOT persist across
+ * multiple serverless instances (Vercel, etc.). Each cold-start gets a fresh store.
+ * For production multi-instance deployments, replace with Upstash Redis:
+ * https://upstash.com/docs/redis/sdks/ratelimit-ts/overview
  *
  * Usage:
- *   const allowed = rateLimit(ip, { limit: 20, windowMs: 60_000 });
- *   if (!allowed) return new Response("Too Many Requests", { status: 429 });
+ *   const limited = checkRateLimit(req, { limit: 20, windowMs: 60_000 });
+ *   if (limited) return limited; // already a 429 NextResponse, return immediately
  */
+
+import { NextResponse } from "next/server";
 
 interface RateLimitEntry {
   count: number;
@@ -14,13 +20,17 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-// Periodically clean up expired entries to avoid memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store.entries()) {
-    if (now > entry.resetAt) store.delete(key);
-  }
-}, 60_000);
+// Clean up expired entries every 60s to prevent unbounded memory growth.
+// Note: in serverless environments this interval may never fire — that is fine,
+// entries are also lazily evicted in rateLimit() when the window expires.
+if (typeof setInterval !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of store.entries()) {
+      if (now > entry.resetAt) store.delete(key);
+    }
+  }, 60_000);
+}
 
 export interface RateLimitOptions {
   /** Maximum requests per window. Default: 20 */
@@ -51,6 +61,27 @@ export function rateLimit(
 
   entry.count++;
   return true;
+}
+
+/**
+ * Convenience wrapper: checks the rate limit and returns a ready-to-return
+ * 429 NextResponse if blocked, or `null` if the request is allowed.
+ *
+ * Usage in an API route:
+ *   const limited = checkRateLimit(req, { limit: 30 });
+ *   if (limited) return limited;
+ */
+export function checkRateLimit(
+  req: Request,
+  options: RateLimitOptions = {}
+): NextResponse | null {
+  const ip = getClientIp(req);
+  if (rateLimit(ip, options)) return null;
+
+  return NextResponse.json(
+    { error: "Zu viele Anfragen. Bitte warte kurz." },
+    { status: 429, headers: { "Retry-After": "60" } }
+  );
 }
 
 /**

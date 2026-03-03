@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -10,6 +11,9 @@ interface RequestBody {
 }
 
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return new Response(

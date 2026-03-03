@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -52,6 +53,9 @@ function buildInspectEditPrompt(req: InspectEditRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, { limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const body = (await req.json()) as InspectEditRequest;
     const { files, element, model = "claude-sonnet-4-6", language = "de" } = body;

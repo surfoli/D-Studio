@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -57,6 +58,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const limited = checkRateLimit(request, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   if (!supabase) {
     return NextResponse.json(
       { error: "Supabase not configured" },
