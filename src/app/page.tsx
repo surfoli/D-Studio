@@ -2,16 +2,17 @@
 
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Layers, Code2, Clock, Settings, X, ChevronDown, ArrowRight, FolderPlus, ChevronRight, Trash2, Check } from "lucide-react";
+import { Layers, Code2, Clock, Settings, X, ChevronDown, ArrowRight, FolderPlus, ChevronRight, Trash2, Check, Upload, Sparkles, Rocket, FileText } from "lucide-react";
 import { AppSettings, loadSettings, saveSettings, AI_MODELS } from "@/lib/settings";
 import GlassChat from "@/components/chat/GlassChat";
 import AuthGate, { UserMenu } from "@/components/auth/AuthGate";
 import OnboardingFlow, { hasSeenOnboarding } from "@/components/onboarding/OnboardingFlow";
 import type { User } from "@/lib/auth";
-import type { DesignBrief } from "@/lib/design-brief";
-import { saveProjectBrief, loadProjectBrief, createProject, loadProjectList, deleteProject, bootstrapProject, setActiveProjectId, type D3Project } from "@/lib/project-store";
+import type { DesignBrief, DesignBriefSection } from "@/lib/design-brief";
+import { saveProjectBrief, loadProjectBrief, createProject, loadProjectList, deleteProject, bootstrapProject, setActiveProjectId, saveProjectFiles, type D3Project } from "@/lib/project-store";
 import { createDesignBrief } from "@/lib/design-brief";
 import { useAI, type AIChatMode } from "@/lib/hooks/use-ai";
+import { authFetch } from "@/lib/auth-fetch";
 
 // Lazy-load mode components
 const PlanMode = lazy(() => import("@/components/editor/PlanMode"));
@@ -34,6 +35,201 @@ function DesignIcon({ size = 13 }: { size?: number }) {
 // ── Types ──
 
 type AppMode = "plan" | "design" | "build" | "history";
+
+interface ProjectTemplate {
+  id: string;
+  name: string;
+  description: string;
+  accent: string;
+  createBrief: () => DesignBrief;
+  planFiles: Array<{ path: string; content: string }>;
+}
+
+function makeTemplateSection(
+  patternId: string,
+  label: string,
+  description: string,
+  animation: DesignBriefSection["animation"]
+): DesignBriefSection {
+  return {
+    id: `sec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    patternId,
+    label,
+    description,
+    animation,
+  };
+}
+
+const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  {
+    id: "saas",
+    name: "SaaS Launchpad",
+    description: "Für Tools, Apps und Produkt-Launches mit klarem Conversion-Fokus.",
+    accent: "#22c55e",
+    createBrief: () => {
+      const brief = createDesignBrief("SaaS Launchpad");
+      brief.style.mood = "clean-saas";
+      brief.style.darkMode = false;
+      brief.colors = {
+        primary: "#2563eb",
+        secondary: "#0ea5e9",
+        accent: "#22c55e",
+        background: "#f8fafc",
+        surface: "#ffffff",
+        text: "#0f172a",
+        textMuted: "#475569",
+      };
+      brief.sections = [
+        makeTemplateSection("hero-split", "Hero", "Klarer Wert + CTA", "fade-up"),
+        makeTemplateSection("features-bento", "Features", "Vorteile visuell hervorheben", "stagger"),
+        makeTemplateSection("data-stats", "Metriken", "Vertrauen durch Zahlen", "counter"),
+        makeTemplateSection("pricing-3tier", "Pricing", "Preise verständlich zeigen", "fade-up"),
+        makeTemplateSection("cta-fullscreen", "Finale CTA", "Letzter Conversion-Impuls", "scale-in"),
+        makeTemplateSection("footer-big", "Footer", "Navigation + Legal + Kontakt", "none"),
+      ];
+      brief.notes = "Fokus: Klarheit, schnelle Aktivierung, starker Trial-CTA.";
+      return brief;
+    },
+    planFiles: [
+      {
+        path: ".d3/PROJECT.md",
+        content: `# SaaS Launchpad\n\n## Ziel\n- Neue User in Trial bringen\n- Time-to-Value unter 2 Minuten\n\n## Zielgruppe\n- Gründer, Produktteams, Tech-SMBs\n\n## Kernseiten\n- Landing\n- Features\n- Pricing\n- FAQ\n- Login/Signup`,
+      },
+      {
+        path: ".d3/CONTENT.md",
+        content: `# Content & Copy\n\n## Ton\n- Klar, konkret, vertrauenswürdig\n\n## Hero\n- Headline: "Ship faster with less complexity."\n- Subline: "Alles in einem Workflow von Plan bis Deploy."\n- CTA: "Kostenlos testen"`,
+      },
+      {
+        path: ".d3/FLOWS.md",
+        content: `# User Flows\n\n## Aktivierung\n1. Landing öffnen\n2. CTA klicken\n3. Projekt starten\n4. Erstes Ergebnis sehen\n\n## Zielwert\n- Erstes Ergebnis < 2 Minuten`,
+      },
+    ],
+  },
+  {
+    id: "agency",
+    name: "Agency Portfolio",
+    description: "Für Agenturen/Freelancer mit Referenzen, Team und Lead-Formular.",
+    accent: "#f59e0b",
+    createBrief: () => {
+      const brief = createDesignBrief("Agency Portfolio");
+      brief.style.mood = "editorial-premium";
+      brief.colors = {
+        primary: "#f59e0b",
+        secondary: "#f97316",
+        accent: "#ef4444",
+        background: "#0b0b0b",
+        surface: "#141414",
+        text: "#f4f4f5",
+        textMuted: "#a1a1aa",
+      };
+      brief.sections = [
+        makeTemplateSection("hero-editorial", "Hero", "Starke Positionierung und Stil", "clip-reveal"),
+        makeTemplateSection("showcase-case-studies", "Case Studies", "Arbeiten mit Ergebnissen", "stagger"),
+        makeTemplateSection("showcase-service-cards", "Leistungen", "Pakete und Services", "stagger"),
+        makeTemplateSection("testimonials-cards", "Testimonials", "Social Proof", "fade-up"),
+        makeTemplateSection("interactive-contact", "Kontakt", "Lead-Formular + Kontaktinfos", "fade-up"),
+        makeTemplateSection("footer-big", "Footer", "Links, Legal, Social", "none"),
+      ];
+      brief.notes = "Fokus: Vertrauen, Premium-Eindruck, hohe Lead-Conversion.";
+      return brief;
+    },
+    planFiles: [
+      {
+        path: ".d3/PROJECT.md",
+        content: `# Agency Portfolio\n\n## Ziel\n- Qualifizierte Leads gewinnen\n- Expertise durch Cases zeigen\n\n## Zielgruppe\n- KMU, Startups, Marketing-Teams\n\n## Angebot\n- Branding\n- Web Design\n- Web Development`,
+      },
+      {
+        path: ".d3/REFERENCES.md",
+        content: `# Referenzen\n\n## Stil\n- Editorial, minimal, hochwertig\n\n## Inspiration\n- Awwwards ähnliche Agenturseiten\n\n## Content-Idee\n- 3 Hauptprojekte mit Ergebniszahlen`,
+      },
+    ],
+  },
+  {
+    id: "shop",
+    name: "E-Commerce Starter",
+    description: "Für Produktseiten mit Fokus auf Vertrauen und Kaufabschluss.",
+    accent: "#06b6d4",
+    createBrief: () => {
+      const brief = createDesignBrief("E-Commerce Starter");
+      brief.style.mood = "modern-commerce";
+      brief.colors = {
+        primary: "#0ea5e9",
+        secondary: "#0284c7",
+        accent: "#14b8a6",
+        background: "#ffffff",
+        surface: "#f8fafc",
+        text: "#111827",
+        textMuted: "#6b7280",
+      };
+      brief.sections = [
+        makeTemplateSection("hero-product", "Hero", "Produkt direkt im Fokus", "scale-in"),
+        makeTemplateSection("showcase-product", "Produktdetails", "Features + Nutzen", "parallax"),
+        makeTemplateSection("data-progress", "Vergleich", "Warum dieses Produkt", "scroll-reveal"),
+        makeTemplateSection("testimonials-cards", "Reviews", "Vertrauen vor Kauf", "stagger"),
+        makeTemplateSection("cta-banner", "Kauf-CTA", "Starker Abschluss", "fade-in"),
+        makeTemplateSection("footer-columns", "Footer", "Infos + Richtlinien", "none"),
+      ];
+      brief.notes = "Fokus: Produktverständnis in Sekunden, Vertrauen, klarer Kaufpfad.";
+      return brief;
+    },
+    planFiles: [
+      {
+        path: ".d3/PROJECT.md",
+        content: `# E-Commerce Starter\n\n## Ziel\n- Conversion Rate steigern\n- Klarer Weg zum Kauf\n\n## Zielgruppe\n- Mobile-first Käufer\n\n## Seiten\n- Home\n- Produkt\n- FAQ\n- Checkout-Info`,
+      },
+      {
+        path: ".d3/TODOS.md",
+        content: `# Aufgaben\n\n- [ ] Produkt-USP in 1 Satz formulieren\n- [ ] 5 echte Testimonials ergänzen\n- [ ] Rückgabe/Versand sichtbar machen\n- [ ] Mobile Checkout Text vereinfachen`,
+      },
+    ],
+  },
+];
+
+function toImportableFiles(value: unknown): Array<{ path: string; content: string }> {
+  if (Array.isArray(value)) {
+    return value
+      .filter((f) => f && typeof f === "object")
+      .map((f) => f as { path?: unknown; file_name?: unknown; content?: unknown })
+      .map((f) => ({
+        path: String(f.path ?? f.file_name ?? "").trim(),
+        content: typeof f.content === "string" ? f.content : "",
+      }))
+      .filter((f) => !!f.path);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([, content]) => typeof content === "string")
+      .map(([path, content]) => ({ path, content: content as string }));
+  }
+
+  return [];
+}
+
+function toImportableBrief(value: unknown, fallbackName: string): DesignBrief {
+  const base = createDesignBrief(fallbackName);
+  if (!value || typeof value !== "object") {
+    base.name = fallbackName;
+    return base;
+  }
+
+  const src = value as Partial<DesignBrief>;
+  return {
+    ...base,
+    ...src,
+    id: typeof src.id === "string" ? src.id : base.id,
+    name: typeof src.name === "string" && src.name.trim() ? src.name : fallbackName,
+    colors: { ...base.colors, ...(src.colors ?? {}) },
+    typography: { ...base.typography, ...(src.typography ?? {}) },
+    spacing: { ...base.spacing, ...(src.spacing ?? {}) },
+    style: { ...base.style, ...(src.style ?? {}) },
+    sections: Array.isArray(src.sections) ? src.sections : base.sections,
+    additionalPages: Array.isArray(src.additionalPages) ? src.additionalPages : base.additionalPages,
+    notes: typeof src.notes === "string" ? src.notes : base.notes,
+    createdAt: typeof src.createdAt === "number" ? src.createdAt : Date.now(),
+    updatedAt: Date.now(),
+  };
+}
 
 // ── Loading Fallback ──
 
@@ -219,6 +415,230 @@ function ProjectSwitcher({
   );
 }
 
+// ── Library Start ──
+
+function formatProjectDate(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString("de-CH", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "vor kurzem";
+  }
+}
+
+function LibraryStart({
+  projects,
+  activeId,
+  onContinue,
+  onOpenProject,
+  onBlankStart,
+  onTemplateStart,
+  onImport,
+  importError,
+}: {
+  projects: D3Project[];
+  activeId: string | null;
+  onContinue: () => void;
+  onOpenProject: (id: string) => void;
+  onBlankStart: () => void;
+  onTemplateStart: (templateId: string) => void;
+  onImport: () => void;
+  importError: string | null;
+}) {
+  const sortedProjects = [...projects].sort((a, b) => b.updatedAt - a.updatedAt);
+  const activeProject = sortedProjects.find((p) => p.id === activeId) ?? sortedProjects[0] ?? null;
+
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        overflow: "auto",
+        background:
+          "radial-gradient(1200px 500px at 10% -10%, rgba(34,197,94,0.10), transparent 60%), radial-gradient(1200px 500px at 90% -5%, rgba(59,130,246,0.10), transparent 60%), var(--d3-bg)",
+      }}
+    >
+      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "28px 20px 40px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: "1rem", fontWeight: 900, letterSpacing: "-0.04em", color: "var(--d3-text)" }}>D³</span>
+            <span style={{ fontSize: "1rem", fontWeight: 900, letterSpacing: "0.08em", color: "var(--d3-text)" }}>STUDIO</span>
+          </div>
+          <button
+            onClick={onContinue}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--d3-glass-border)",
+              background: "var(--d3-surface)",
+              color: "var(--d3-text-secondary)",
+              cursor: "pointer",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+            }}
+          >
+            <Rocket size={13} />
+            Weiterarbeiten
+          </button>
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(1.6rem, 4vw, 2.6rem)", color: "var(--d3-text)", letterSpacing: "-0.03em" }}>
+            Projekt-Bibliothek
+          </h1>
+          <p style={{ margin: "8px 0 0", color: "var(--d3-text-secondary)", fontSize: "0.9rem" }}>
+            Starte mit Template, öffne ein bestehendes Projekt, importiere Daten oder beginne komplett leer.
+          </p>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 24 }}>
+          <button
+            onClick={onBlankStart}
+            style={{
+              borderRadius: 14,
+              border: "1px solid var(--d3-glass-border)",
+              background: "var(--d3-surface)",
+              padding: "14px 14px",
+              textAlign: "left",
+              cursor: "pointer",
+              color: "var(--d3-text)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <FolderPlus size={14} />
+              <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>Leer starten</span>
+            </div>
+            <span style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)" }}>Neues Projekt ohne Vorgaben</span>
+          </button>
+
+          <button
+            onClick={onImport}
+            style={{
+              borderRadius: 14,
+              border: "1px solid var(--d3-glass-border)",
+              background: "var(--d3-surface)",
+              padding: "14px 14px",
+              textAlign: "left",
+              cursor: "pointer",
+              color: "var(--d3-text)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <Upload size={14} />
+              <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>Importieren</span>
+            </div>
+            <span style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)" }}>JSON-Backup laden (.json)</span>
+          </button>
+
+          {activeProject && (
+            <button
+              onClick={() => onOpenProject(activeProject.id)}
+              style={{
+                borderRadius: 14,
+                border: "1px solid rgba(34,197,94,0.35)",
+                background: "rgba(34,197,94,0.08)",
+                padding: "14px 14px",
+                textAlign: "left",
+                cursor: "pointer",
+                color: "var(--d3-text)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <Rocket size={14} />
+                <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>Letztes Projekt öffnen</span>
+              </div>
+              <span style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)" }}>{activeProject.name}</span>
+            </button>
+          )}
+        </div>
+
+        {importError && (
+          <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#fca5a5", fontSize: "0.78rem" }}>
+            {importError}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <FileText size={14} style={{ color: "var(--d3-text-secondary)" }} />
+            <span style={{ fontSize: "0.82rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--d3-text-secondary)" }}>
+              Deine Projekte
+            </span>
+          </div>
+          {sortedProjects.length === 0 ? (
+            <div style={{ borderRadius: 14, border: "1px solid var(--d3-glass-border)", background: "var(--d3-surface)", padding: 16, color: "var(--d3-text-secondary)", fontSize: "0.8rem" }}>
+              Noch keine Projekte vorhanden.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              {sortedProjects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onOpenProject(p.id)}
+                  style={{
+                    borderRadius: 14,
+                    border: p.id === activeId ? "1px solid rgba(34,197,94,0.35)" : "1px solid var(--d3-glass-border)",
+                    background: p.id === activeId ? "rgba(34,197,94,0.08)" : "var(--d3-surface)",
+                    padding: "12px 12px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--d3-text)", marginBottom: 4 }}>{p.name}</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--d3-text-tertiary)" }}>Aktualisiert: {formatProjectDate(p.updatedAt)}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <Sparkles size={14} style={{ color: "var(--d3-text-secondary)" }} />
+            <span style={{ fontSize: "0.82rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--d3-text-secondary)" }}>
+              Templates
+            </span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
+            {PROJECT_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                onClick={() => onTemplateStart(template.id)}
+                style={{
+                  borderRadius: 14,
+                  border: "1px solid var(--d3-glass-border)",
+                  background: "var(--d3-surface)",
+                  padding: "14px 14px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  position: "relative",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ position: "absolute", insetInlineEnd: -30, insetBlockStart: -30, width: 90, height: 90, borderRadius: "50%", background: `${template.accent}22` }} />
+                <div style={{ position: "relative" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "4px 8px", borderRadius: 999, background: `${template.accent}22`, color: template.accent, fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                    Template
+                  </div>
+                  <div style={{ fontSize: "0.9rem", fontWeight: 800, color: "var(--d3-text)", marginBottom: 4 }}>{template.name}</div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--d3-text-secondary)", lineHeight: 1.5 }}>{template.description}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── AppContent ──
 
 function AppContent({ user }: { user: User | null }) {
@@ -228,6 +648,9 @@ function AppContent({ user }: { user: User | null }) {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [buildFromBrief, setBuildFromBrief] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
+  const [showLibrary, setShowLibrary] = useState(true);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // ── Central Project State ──
   const [bootstrapped] = useState(() => bootstrapProject());
@@ -283,6 +706,35 @@ function AppContent({ user }: { user: User | null }) {
     resetBuildRef.current?.();
   }, [ai]);
 
+  const persistFilesForProject = useCallback(async (
+    id: string,
+    files: Array<{ path: string; content: string }>
+  ) => {
+    const normalized = files
+      .map((f) => ({
+        path: f.path.replace(/\\/g, "/").replace(/^\/+/, "").trim(),
+        content: f.content ?? "",
+      }))
+      .filter((f) => !!f.path);
+    if (normalized.length === 0) return;
+
+    saveProjectFiles(id, Object.fromEntries(normalized.map((f) => [f.path, f.content])));
+
+    const batchSize = 40;
+    for (let i = 0; i < normalized.length; i += batchSize) {
+      const batch = normalized.slice(i, i + batchSize);
+      try {
+        await authFetch("/api/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: id, files: batch }),
+        });
+      } catch {
+        // local fallback is already saved
+      }
+    }
+  }, []);
+
   // ── New project ──
   const handleNewProject = useCallback(() => {
     const { project, brief } = createProject();
@@ -294,6 +746,109 @@ function AppContent({ user }: { user: User | null }) {
     resetBuildRef.current?.();
     setMode("plan");
   }, [ai]);
+
+  const handleOpenProjectFromLibrary = useCallback((id: string) => {
+    switchProject(id);
+    setShowLibrary(false);
+    setMode("plan");
+    setLibraryError(null);
+  }, [switchProject]);
+
+  const handleBlankStartFromLibrary = useCallback(() => {
+    handleNewProject();
+    setShowLibrary(false);
+    setLibraryError(null);
+  }, [handleNewProject]);
+
+  const handleContinueFromLibrary = useCallback(() => {
+    if (projectId) {
+      switchProject(projectId);
+    } else {
+      handleNewProject();
+    }
+    setShowLibrary(false);
+    setMode("plan");
+    setLibraryError(null);
+  }, [projectId, switchProject, handleNewProject]);
+
+  const handleTemplateStart = useCallback(async (templateId: string) => {
+    const template = PROJECT_TEMPLATES.find((t) => t.id === templateId);
+    if (!template) return;
+
+    const { project } = createProject(template.name);
+    const brief = template.createBrief();
+    brief.name = project.name;
+    saveProjectBrief(project.id, brief);
+
+    setProjectId(project.id);
+    setDesignBrief(brief);
+    setProjects(loadProjectList());
+    ai.clearMessages();
+    setBuildFromBrief(false);
+    resetBuildRef.current?.();
+    setMode("plan");
+    setShowLibrary(false);
+    setLibraryError(null);
+
+    await persistFilesForProject(project.id, template.planFiles);
+  }, [ai, persistFilesForProject]);
+
+  const handleImportClick = useCallback(() => {
+    importInputRef.current?.click();
+  }, []);
+
+  const handleImportFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const fallbackName = file.name.replace(/\.[^.]+$/, "") || "Importiertes Projekt";
+      const parsedName = typeof parsed.name === "string" ? parsed.name.trim() : "";
+      const importName = parsedName || fallbackName;
+
+      const briefCandidate =
+        parsed.designBrief ??
+        parsed.brief ??
+        ((parsed.project && typeof parsed.project === "object")
+          ? (parsed.project as Record<string, unknown>).brief
+          : null);
+      const fallbackBriefCandidate =
+        briefCandidate ??
+        ((parsed.colors && parsed.typography && parsed.style) ? parsed : null);
+
+      const filesCandidate =
+        parsed.files ??
+        parsed.projectFiles ??
+        parsed.planFiles ??
+        ((parsed.project && typeof parsed.project === "object")
+          ? (parsed.project as Record<string, unknown>).files
+          : null);
+
+      const { project } = createProject(importName);
+      const importedBrief = toImportableBrief(fallbackBriefCandidate, importName);
+      importedBrief.name = importName;
+      saveProjectBrief(project.id, importedBrief);
+
+      const importedFiles = toImportableFiles(filesCandidate);
+      await persistFilesForProject(project.id, importedFiles);
+
+      setProjectId(project.id);
+      setDesignBrief(importedBrief);
+      setProjects(loadProjectList());
+      ai.clearMessages();
+      setBuildFromBrief(false);
+      resetBuildRef.current?.();
+      setMode("plan");
+      setShowLibrary(false);
+      setLibraryError(null);
+    } catch {
+      setLibraryError("Import fehlgeschlagen. Bitte nutze ein gültiges JSON-Backup.");
+    } finally {
+      event.target.value = "";
+    }
+  }, [ai, persistFilesForProject]);
 
   // ── Delete project ──
   const handleDeleteProject = useCallback((id: string) => {
@@ -314,6 +869,33 @@ function AppContent({ user }: { user: User | null }) {
   const briefColorsDone = designBrief?.colors.primary !== "#6366f1" || designBrief?.colors.background !== "#0a0a0a";
 
   if (!designBrief || !projectId) return <LoadingFallback />;
+
+  if (showLibrary) {
+    return (
+      <>
+        <LibraryStart
+          projects={projects}
+          activeId={projectId}
+          onContinue={handleContinueFromLibrary}
+          onOpenProject={handleOpenProjectFromLibrary}
+          onBlankStart={handleBlankStartFromLibrary}
+          onTemplateStart={handleTemplateStart}
+          onImport={handleImportClick}
+          importError={libraryError}
+        />
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: "none" }}
+          onChange={handleImportFileChange}
+        />
+        <AnimatePresence>
+          {showOnboarding && <OnboardingFlow onComplete={() => setShowOnboarding(false)} />}
+        </AnimatePresence>
+      </>
+    );
+  }
 
   return (
     <div
@@ -352,6 +934,26 @@ function AppContent({ user }: { user: User | null }) {
             onNew={handleNewProject}
             onDelete={handleDeleteProject}
           />
+          <button
+            onClick={() => setShowLibrary(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "5px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--d3-glass-border)",
+              background: "var(--d3-surface)",
+              color: "var(--d3-text-secondary)",
+              fontSize: "0.6875rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            title="Projekt-Bibliothek öffnen"
+          >
+            <Sparkles size={11} />
+            Bibliothek
+          </button>
           {/* Sync indicator — all modes use same project */}
           <div title="Alle Modi synchron" style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 99, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)" }}>
             <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e" }} />
