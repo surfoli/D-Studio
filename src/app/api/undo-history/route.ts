@@ -12,6 +12,9 @@ function getSupabase() {
 
 // GET: Load undo history for a user + project + mode
 export async function GET(req: NextRequest) {
+  const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
+  if (limited) return limited;
+
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ entries: [] });
 
