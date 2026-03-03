@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { requireApiUser } from "@/lib/server/api-auth";
 import { createClient } from "@supabase/supabase-js";
 
 function getSupabase() {
@@ -13,6 +14,8 @@ function getSupabase() {
 export async function GET(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
 
   const supabase = getSupabase();
   if (!supabase) {
@@ -36,6 +39,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
 
   const supabase = getSupabase();
   if (!supabase) {
@@ -75,6 +80,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
 
   const supabase = getSupabase();
   if (!supabase) {
@@ -111,6 +118,8 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD_AI);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
 
   const supabase = getSupabase();
   if (!supabase) {

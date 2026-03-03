@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { rateLimit, getRateLimitInfo, _clearStoreForTesting } from "@/lib/rate-limit";
+import {
+  checkRateLimit,
+  rateLimit,
+  getRateLimitInfo,
+  _clearStoreForTesting,
+} from "@/lib/rate-limit";
 
 // Reset module state between tests by mocking time
 describe("rateLimit", () => {
@@ -77,5 +82,22 @@ describe("getRateLimitInfo", () => {
     expect(info.remaining).toBe(18);
     // resetAt should be in the future
     expect(info.resetAt).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("checkRateLimit", () => {
+  beforeEach(() => {
+    _clearStoreForTesting();
+  });
+
+  it("applies limits per route (same IP, different path)", () => {
+    const headers = { "x-forwarded-for": "203.0.113.10" };
+    const routeA = new Request("https://d3.local/api/files", { headers });
+    const routeB = new Request("https://d3.local/api/vibe-code", { headers });
+
+    expect(checkRateLimit(routeA, { limit: 1, windowMs: 60_000 })).toBeNull();
+    expect(checkRateLimit(routeA, { limit: 1, windowMs: 60_000 })).not.toBeNull();
+    // Different route should still be allowed
+    expect(checkRateLimit(routeB, { limit: 1, windowMs: 60_000 })).toBeNull();
   });
 });

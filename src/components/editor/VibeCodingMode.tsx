@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useUndoRedo } from "@/lib/hooks/use-history";
+import { authFetch } from "@/lib/auth-fetch";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import {
@@ -107,7 +108,7 @@ type ContainerStatus = "idle" | "booting" | "ready" | "installing" | "starting" 
 // ── E2B Sandbox helpers (replace old WebContainer functions) ──
 
 async function sandboxCall(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await fetch("/api/sandbox", {
+  const res = await authFetch("/api/sandbox", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -123,7 +124,7 @@ async function streamingBoot(
   files: Record<string, string>,
   onStep: (step: string, message: string, url?: string) => void,
 ): Promise<string> {
-  const res = await fetch("/api/sandbox/boot", {
+  const res = await authFetch("/api/sandbox/boot", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ projectId, files }),
@@ -769,7 +770,7 @@ export default function VibeCodingMode({
       // Check if sandbox is already running (reconnect instead of reboot)
       let sandboxAlreadyRunning = false;
       try {
-        const statusRes = await fetch(`/api/sandbox?projectId=${projectId}`);
+        const statusRes = await authFetch(`/api/sandbox?projectId=${projectId}`);
         if (statusRes.ok) {
           const statusData = await statusRes.json() as { running: boolean; url: string | null };
           if (statusData.running && statusData.url) {
@@ -782,7 +783,7 @@ export default function VibeCodingMode({
         }
       } catch { /* ignore status check errors */ }
 
-      const res = await fetch(`/api/files?project_id=${projectId}`);
+      const res = await authFetch(`/api/files?project_id=${projectId}`);
       if (res.ok) {
         const data = await res.json();
         const dbFiles: VibeCodeFile[] = (data.files || []).map(
@@ -823,7 +824,7 @@ export default function VibeCodingMode({
     const init = async () => {
       setProjectsLoading(true);
       try {
-        const res = await fetch("/api/vibe-projects");
+        const res = await authFetch("/api/vibe-projects");
         if (!res.ok) return;
         const data = await res.json();
         const projects: VibeProject[] = data.projects ?? [];
@@ -851,7 +852,7 @@ export default function VibeCodingMode({
   // ── Create new project ──
   const createVibeProject = useCallback(async (name: string) => {
     try {
-      const res = await fetch("/api/vibe-projects", {
+      const res = await authFetch("/api/vibe-projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -902,7 +903,7 @@ export default function VibeCodingMode({
   // ── Rename project ──
   const renameVibeProject = useCallback(async (id: string, name: string) => {
     try {
-      const res = await fetch("/api/vibe-projects", {
+      const res = await authFetch("/api/vibe-projects", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name }),
@@ -922,7 +923,7 @@ export default function VibeCodingMode({
   // ── Delete project ──
   const deleteVibeProject = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/vibe-projects?id=${id}`, { method: "DELETE" });
+      await authFetch(`/api/vibe-projects?id=${id}`, { method: "DELETE" });
       setVibeProjects((prev) => {
         const remaining = prev.filter((p) => p.id !== id);
         if (activeProjectIdRef.current === id) {
@@ -1156,7 +1157,7 @@ export default function VibeCodingMode({
       if (!file) return;
 
       try {
-        await fetch("/api/files", {
+        await authFetch("/api/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1220,7 +1221,7 @@ export default function VibeCodingMode({
       try {
         const delParams = new URLSearchParams({ file_name: path });
         if (activeProjectIdRef.current) delParams.set("project_id", activeProjectIdRef.current);
-        await fetch(`/api/files?${delParams}`, {
+        await authFetch(`/api/files?${delParams}`, {
           method: "DELETE",
         });
       } catch (err) {
@@ -1272,7 +1273,7 @@ export default function VibeCodingMode({
         .map((u) => ({ path: u.path, content: u.content }));
 
       if (filesToSave.length > 0) {
-        fetch("/api/files", {
+        authFetch("/api/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ project_id: activeProjectIdRef.current, files: filesToSave }),
@@ -1602,7 +1603,7 @@ export default function VibeCodingMode({
       // Always create a new Supabase project for GitHub imports
       let pid = "";
       try {
-        const projRes = await fetch("/api/vibe-projects", {
+        const projRes = await authFetch("/api/vibe-projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: `${repo.name} (GitHub)` }),
@@ -1618,7 +1619,7 @@ export default function VibeCodingMode({
 
       // Save files to Supabase so they persist across reloads
       if (pid) {
-        fetch("/api/files", {
+        authFetch("/api/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1704,7 +1705,7 @@ export default function VibeCodingMode({
     if (!activeProjectIdRef.current) {
       try {
         const projName = text.slice(0, 40) || "Mein Projekt";
-        const res = await fetch("/api/vibe-projects", {
+        const res = await authFetch("/api/vibe-projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: projName }),
@@ -1725,7 +1726,7 @@ export default function VibeCodingMode({
       currentFiles = STARTER_FILES;
 
       // Save starter files to Supabase
-      fetch("/api/files", {
+      authFetch("/api/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1803,7 +1804,7 @@ export default function VibeCodingMode({
       const errorFileMatches = terminalOutput.match(/(?:[\w\-./]+\.(?:tsx?|jsx?|css|json|mjs))/g) || [];
       const errorFilePaths = [...new Set(errorFileMatches.map(p => p.replace(/^\.\//, "")))];
 
-      const res = await fetch("/api/vibe-code", {
+      const res = await authFetch("/api/vibe-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2253,7 +2254,7 @@ export default function VibeCodingMode({
     agentAbortRef.current = abort;
 
     try {
-      const res = await fetch("/api/agent", {
+      const res = await authFetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2405,7 +2406,7 @@ export default function VibeCodingMode({
                     .filter(u => u.action !== "delete")
                     .map(u => ({ path: u.path, content: u.content }));
                   if (filesToSave.length > 0) {
-                    fetch("/api/files", {
+                    authFetch("/api/files", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ project_id: activeProjectIdRef.current, files: filesToSave }),
@@ -2532,7 +2533,7 @@ export default function VibeCodingMode({
         (f) => !f.path.includes("node_modules") && f.content.length < 50000
       );
 
-      const res = await fetch("/api/inspect-edit", {
+      const res = await authFetch("/api/inspect-edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2563,7 +2564,7 @@ export default function VibeCodingMode({
         applyFileUpdates(updates);
 
         // Save to Supabase
-        fetch("/api/files", {
+        authFetch("/api/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2614,7 +2615,7 @@ export default function VibeCodingMode({
         (f) => !f.path.includes("node_modules") && f.content.length < 50000
       );
 
-      const res = await fetch("/api/inspect-edit", {
+      const res = await authFetch("/api/inspect-edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2644,7 +2645,7 @@ export default function VibeCodingMode({
         }));
         applyFileUpdates(updates);
 
-        fetch("/api/files", {
+        authFetch("/api/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2700,7 +2701,7 @@ export default function VibeCodingMode({
         .filter((f) => !f.path.includes("node_modules") && !f.path.startsWith(".next/") && f.content.length < 500000)
         .map((f) => ({ path: f.path, content: f.content }));
 
-      const res = await fetch("/api/deploy", {
+      const res = await authFetch("/api/deploy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2743,7 +2744,7 @@ export default function VibeCodingMode({
           return;
         }
         try {
-          const statusRes = await fetch(`/api/deploy?id=${data.id}`);
+          const statusRes = await authFetch(`/api/deploy?id=${data.id}`);
           if (statusRes.ok) {
             const statusData = (await statusRes.json()) as { readyState: string; url: string };
             if (statusData.readyState === "READY") {

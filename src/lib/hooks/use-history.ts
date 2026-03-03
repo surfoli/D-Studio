@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { authFetch } from "@/lib/auth-fetch";
 
 /**
  * Generic undo/redo hook with Cmd+Z / Cmd+Shift+Z keyboard support.
@@ -37,62 +38,68 @@ export interface UseHistoryReturn<T> {
   redoCount: number;
 }
 
+interface HistoryMeta {
+  undoCount: number;
+  redoCount: number;
+}
+
+function buildMeta(undoCount: number, redoCount: number): HistoryMeta {
+  return { undoCount, redoCount };
+}
+
 export function useHistory<T>(options: UseHistoryOptions<T>): UseHistoryReturn<T> {
   const { maxSize = 40, enabled = true } = options;
 
   const pastRef = useRef<T[]>([]);
   const futureRef = useRef<T[]>([]);
-  const [, forceRender] = useState(0);
-  const bump = useCallback(() => forceRender((n) => n + 1), []);
-
-  // Keep onApply in a ref so keyboard handler always has latest
   const onApplyRef = useRef(options.onApply);
-  onApplyRef.current = options.onApply;
+  const [meta, setMeta] = useState<HistoryMeta>(() => buildMeta(0, 0));
 
-  const push = useCallback((state: T) => {
-    const next = [...pastRef.current, state];
-    pastRef.current = next.length > maxSize ? next.slice(next.length - maxSize) : next;
-    futureRef.current = [];
-    bump();
-  }, [maxSize, bump]);
+  const syncMeta = useCallback(() => {
+    setMeta(buildMeta(pastRef.current.length, futureRef.current.length));
+  }, []);
+
+  useEffect(() => {
+    onApplyRef.current = options.onApply;
+  }, [options.onApply]);
+
+  const push = useCallback(
+    (state: T) => {
+      const next = [...pastRef.current, state];
+      pastRef.current = next.length > maxSize ? next.slice(next.length - maxSize) : next;
+      futureRef.current = [];
+      syncMeta();
+    },
+    [maxSize, syncMeta]
+  );
 
   const undo = useCallback(() => {
     const past = pastRef.current;
     if (past.length === 0) return;
+
     const restored = past[past.length - 1];
     pastRef.current = past.slice(0, -1);
-    // We need to save the "current" state to redo stack.
-    // The caller should have pushed it before the last mutation,
-    // but for redo we save what we're restoring FROM — the current live state.
-    // Since we don't track current here, we save the restored state's "next"
-    // (which is actually the state that was pushed right before this undo).
-    // Actually: the push() saves the state BEFORE mutation. So undo pops
-    // the pre-mutation state. To redo, we need the post-mutation state.
-    // We can't know the post-mutation state here, so we use a different approach:
-    // We'll track "current" explicitly.
-    // For simplicity: on undo we pop from past and push current snapshot to future.
-    // But we need the caller to tell us what the "current" state is...
-    //
-    // Simpler design: past/future are full snapshots. undo() needs currentState.
-    // Let's use a ref that the caller updates.
+    futureRef.current = [...futureRef.current, restored];
     onApplyRef.current(restored);
-    bump();
-  }, [bump]);
+    syncMeta();
+  }, [syncMeta]);
 
   const redo = useCallback(() => {
     const future = futureRef.current;
     if (future.length === 0) return;
+
     const restored = future[future.length - 1];
     futureRef.current = future.slice(0, -1);
+    pastRef.current = [...pastRef.current, restored];
     onApplyRef.current(restored);
-    bump();
-  }, [bump]);
+    syncMeta();
+  }, [syncMeta]);
 
   const clear = useCallback(() => {
     pastRef.current = [];
     futureRef.current = [];
-    bump();
-  }, [bump]);
+    syncMeta();
+  }, [syncMeta]);
 
   // Keyboard shortcuts: Cmd+Z / Cmd+Shift+Z
   useEffect(() => {
@@ -109,37 +116,26 @@ export function useHistory<T>(options: UseHistoryOptions<T>): UseHistoryReturn<T
 
       e.preventDefault();
       e.stopPropagation();
-
       if (e.shiftKey) {
-        if (futureRef.current.length > 0) {
-          const restored = futureRef.current[futureRef.current.length - 1];
-          futureRef.current = futureRef.current.slice(0, -1);
-          onApplyRef.current(restored);
-          bump();
-        }
+        redo();
       } else {
-        if (pastRef.current.length > 0) {
-          const restored = pastRef.current[pastRef.current.length - 1];
-          pastRef.current = pastRef.current.slice(0, -1);
-          onApplyRef.current(restored);
-          bump();
-        }
+        undo();
       }
     };
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [enabled, bump]);
+  }, [enabled, redo, undo]);
 
   return {
     push,
     undo,
     redo,
-    canUndo: pastRef.current.length > 0,
-    canRedo: futureRef.current.length > 0,
+    canUndo: meta.undoCount > 0,
+    canRedo: meta.redoCount > 0,
     clear,
-    undoCount: pastRef.current.length,
-    redoCount: futureRef.current.length,
+    undoCount: meta.undoCount,
+    redoCount: meta.redoCount,
   };
 }
 
@@ -187,6 +183,11 @@ export interface UseUndoRedoReturn<T> {
   isLoading: boolean;
 }
 
+interface UndoRedoMeta {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
 // ── Debounced save to Supabase ──
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -194,7 +195,7 @@ function debouncedSave<T>(persist: UndoPersist, entries: UndoEntry<T>[]) {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const trimmed = entries.slice(-100);
-    fetch("/api/undo-history", {
+    authFetch("/api/undo-history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -213,71 +214,99 @@ export function useUndoRedo<T>(options: UseUndoRedoOptions<T>): UseUndoRedoRetur
   const pastRef = useRef<UndoEntry<T>[]>([]);
   const futureRef = useRef<UndoEntry<T>[]>([]);
   const pendingRef = useRef<T | null>(null);
-  const [, forceRender] = useState(0);
-  const [isLoading, setIsLoading] = useState(!!persist);
-  const bump = useCallback(() => forceRender((n) => n + 1), []);
-
   const onApplyRef = useRef(options.onApply);
-  onApplyRef.current = options.onApply;
-
-  const persistRef = useRef(persist);
-  persistRef.current = persist;
-
-  // ── Load from Supabase on mount (if persist is set) ──
+  const persistRef = useRef<UndoPersist | null>(persist);
   const loadedKeyRef = useRef<string | null>(null);
+  const [isLoading, setIsLoading] = useState(!!persist);
+  const [meta, setMeta] = useState<UndoRedoMeta>({ canUndo: false, canRedo: false });
+
+  const syncMeta = useCallback(() => {
+    setMeta({
+      canUndo: pastRef.current.length > 0,
+      canRedo: futureRef.current.length > 0,
+    });
+  }, []);
 
   useEffect(() => {
-    if (!persist) { setIsLoading(false); return; }
-    const key = `${persist.userId}:${persist.projectId}:${persist.mode}`;
-    if (loadedKeyRef.current === key) return;
-    loadedKeyRef.current = key;
+    onApplyRef.current = options.onApply;
+  }, [options.onApply]);
 
-    setIsLoading(true);
-    fetch(`/api/undo-history?user_id=${persist.userId}&project_id=${persist.projectId}&mode=${persist.mode}`)
+  useEffect(() => {
+    persistRef.current = persist;
+  }, [persist]);
+
+  // ── Load from Supabase on mount (if persist is set) ──
+  const persistKey = persist
+    ? `${persist.userId}:${persist.projectId ?? "null"}:${persist.mode}`
+    : null;
+
+  useEffect(() => {
+    const currentPersist = persistRef.current;
+    if (!persistKey || !currentPersist) {
+      loadedKeyRef.current = null;
+      return;
+    }
+
+    if (loadedKeyRef.current === persistKey) return;
+    loadedKeyRef.current = persistKey;
+
+    queueMicrotask(() => setIsLoading(true));
+    authFetch(
+      `/api/undo-history?user_id=${currentPersist.userId}&project_id=${currentPersist.projectId}&mode=${currentPersist.mode}`
+    )
       .then((r) => r.json())
       .then((data: { entries?: UndoEntry<T>[] }) => {
-        if (data.entries && Array.isArray(data.entries) && data.entries.length > 0) {
+        if (Array.isArray(data.entries)) {
           pastRef.current = data.entries;
           futureRef.current = [];
-          bump();
+          syncMeta();
         }
       })
       .catch(() => {})
-      .finally(() => setIsLoading(false));
-  }, [persist?.userId, persist?.projectId, persist?.mode, bump, persist]);
+      .finally(() => queueMicrotask(() => setIsLoading(false)));
+  }, [persistKey, syncMeta]);
 
   // ── Auto-persist after changes ──
   const maybePersist = useCallback(() => {
-    const p = persistRef.current;
-    if (p) debouncedSave(p, pastRef.current);
+    const activePersist = persistRef.current;
+    if (activePersist) debouncedSave(activePersist, pastRef.current);
   }, []);
 
-  const trimIfNeeded = useCallback((arr: UndoEntry<T>[]) => {
-    if (maxSize === Infinity) return arr;
-    return arr.length > maxSize ? arr.slice(arr.length - maxSize) : arr;
-  }, [maxSize]);
+  const trimIfNeeded = useCallback(
+    (arr: UndoEntry<T>[]) => {
+      if (maxSize === Infinity) return arr;
+      return arr.length > maxSize ? arr.slice(arr.length - maxSize) : arr;
+    },
+    [maxSize]
+  );
 
   const snapshot = useCallback((currentState: T) => {
     pendingRef.current = currentState;
   }, []);
 
-  const commit = useCallback((newState: T) => {
-    if (pendingRef.current === null) return;
-    const entry: UndoEntry<T> = { before: pendingRef.current, after: newState };
-    pastRef.current = trimIfNeeded([...pastRef.current, entry]);
-    futureRef.current = [];
-    pendingRef.current = null;
-    bump();
-    maybePersist();
-  }, [trimIfNeeded, bump, maybePersist]);
+  const commit = useCallback(
+    (newState: T) => {
+      if (pendingRef.current === null) return;
+      const entry: UndoEntry<T> = { before: pendingRef.current, after: newState };
+      pastRef.current = trimIfNeeded([...pastRef.current, entry]);
+      futureRef.current = [];
+      pendingRef.current = null;
+      syncMeta();
+      maybePersist();
+    },
+    [maybePersist, syncMeta, trimIfNeeded]
+  );
 
-  const record = useCallback((before: T, after: T) => {
-    const entry: UndoEntry<T> = { before, after };
-    pastRef.current = trimIfNeeded([...pastRef.current, entry]);
-    futureRef.current = [];
-    bump();
-    maybePersist();
-  }, [trimIfNeeded, bump, maybePersist]);
+  const record = useCallback(
+    (before: T, after: T) => {
+      const entry: UndoEntry<T> = { before, after };
+      pastRef.current = trimIfNeeded([...pastRef.current, entry]);
+      futureRef.current = [];
+      syncMeta();
+      maybePersist();
+    },
+    [maybePersist, syncMeta, trimIfNeeded]
+  );
 
   const undo = useCallback(() => {
     if (pastRef.current.length === 0) return;
@@ -285,9 +314,9 @@ export function useUndoRedo<T>(options: UseUndoRedoOptions<T>): UseUndoRedoRetur
     pastRef.current = pastRef.current.slice(0, -1);
     futureRef.current = [...futureRef.current, entry];
     onApplyRef.current(entry.before);
-    bump();
+    syncMeta();
     maybePersist();
-  }, [bump, maybePersist]);
+  }, [maybePersist, syncMeta]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
@@ -295,17 +324,17 @@ export function useUndoRedo<T>(options: UseUndoRedoOptions<T>): UseUndoRedoRetur
     futureRef.current = futureRef.current.slice(0, -1);
     pastRef.current = [...pastRef.current, entry];
     onApplyRef.current(entry.after);
-    bump();
+    syncMeta();
     maybePersist();
-  }, [bump, maybePersist]);
+  }, [maybePersist, syncMeta]);
 
   const clear = useCallback(() => {
     pastRef.current = [];
     futureRef.current = [];
     pendingRef.current = null;
-    bump();
+    syncMeta();
     maybePersist();
-  }, [bump, maybePersist]);
+  }, [maybePersist, syncMeta]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -323,31 +352,15 @@ export function useUndoRedo<T>(options: UseUndoRedoOptions<T>): UseUndoRedoRetur
       e.stopPropagation();
 
       if (e.shiftKey) {
-        // Redo
-        if (futureRef.current.length > 0) {
-          const entry = futureRef.current[futureRef.current.length - 1];
-          futureRef.current = futureRef.current.slice(0, -1);
-          pastRef.current = [...pastRef.current, entry];
-          onApplyRef.current(entry.after);
-          bump();
-          maybePersist();
-        }
+        redo();
       } else {
-        // Undo
-        if (pastRef.current.length > 0) {
-          const entry = pastRef.current[pastRef.current.length - 1];
-          pastRef.current = pastRef.current.slice(0, -1);
-          futureRef.current = [...futureRef.current, entry];
-          onApplyRef.current(entry.before);
-          bump();
-          maybePersist();
-        }
+        undo();
       }
     };
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [enabled, bump, maybePersist]);
+  }, [enabled, redo, undo]);
 
   return {
     snapshot,
@@ -355,8 +368,8 @@ export function useUndoRedo<T>(options: UseUndoRedoOptions<T>): UseUndoRedoRetur
     record,
     undo,
     redo,
-    canUndo: pastRef.current.length > 0,
-    canRedo: futureRef.current.length > 0,
+    canUndo: meta.canUndo,
+    canRedo: meta.canRedo,
     clear,
     isLoading,
   };

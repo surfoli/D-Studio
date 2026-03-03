@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useUndoRedo } from "@/lib/hooks/use-history";
+import { authFetch } from "@/lib/auth-fetch";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen,
@@ -308,7 +309,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
       // Persist restored files to server
       if (activeProjectId) {
         for (const f of snapshot) {
-          fetch("/api/files", {
+          authFetch("/api/files", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ project_id: activeProjectId, files: [{ path: f.path, content: f.content }] }),
@@ -390,7 +391,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     if (centralProjectId) return; // central project handles this
     (async () => {
       try {
-        const res = await fetch("/api/vibe-projects");
+        const res = await authFetch("/api/vibe-projects");
         if (!res.ok) return;
         const data = await res.json();
         const projs: VibeProject[] = data.projects ?? [];
@@ -408,7 +409,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     if (!activeProjectId) { setD3Files([]); setAllFiles([]); return; }
     (async () => {
       try {
-        const res = await fetch(`/api/files?project_id=${activeProjectId}`);
+        const res = await authFetch(`/api/files?project_id=${activeProjectId}`);
         if (!res.ok) return;
         const data = await res.json();
         const files = (data.files ?? []) as { file_name: string; content: string }[];
@@ -492,7 +493,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await fetch("/api/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: activeProjectId, files: [{ path, content }] }) });
+        await authFetch("/api/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: activeProjectId, files: [{ path, content }] }) });
       } catch (err) { console.error("Save failed:", err); }
     }, 600);
   }, [activeProjectId, undoRedo, syncStyleToBrief]);
@@ -545,7 +546,7 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     setProjects((prev) => prev.map((p) => p.id === activeProjectId ? { ...p, name: newName } : p));
     setIsRenamingTitle(false);
     try {
-      await fetch("/api/vibe-projects", {
+      await authFetch("/api/vibe-projects", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: activeProjectId, name: newName }),
@@ -604,7 +605,7 @@ Wenn kein Code vorhanden, erstelle sinnvolle professionelle Inhalte basierend au
 Deutsch. Professionell. Konkret.`;
 
     try {
-      const res = await fetch("/api/vibe-code", {
+      const res = await authFetch("/api/vibe-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -728,7 +729,7 @@ Deutsch. Professionell. Konkret.`;
       }).join("\n");
       const projectContext = `Du bist im PLAN-MODUS von D3 Studio.\nProjekt: "${activeProject?.name ?? ""}"\nHasCode: ${allFiles.filter((f) => !f.path.startsWith(".d3/")).length > 0 ? "Ja" : "Nein"}\nKarten-Status:\n${planContext}\n\nDu kannst Plan-Karten ausfuellen indem du Dateien im Format ===FILE: .d3/DATEI.md=== ... ===END=== zurueckgibst. Der User sieht dich als WhatsApp-aehnlichen Assistenten. Sei kurz, freundlich, professionell.`;
 
-      const res = await fetch("/api/vibe-code", {
+      const res = await authFetch("/api/vibe-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

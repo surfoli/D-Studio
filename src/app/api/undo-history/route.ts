@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { requireApiUser } from "@/lib/server/api-auth";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -14,17 +15,24 @@ function getSupabase() {
 export async function GET(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
+  const userId = auth.user?.id;
 
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ entries: [] });
 
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("user_id");
+  const userIdParam = searchParams.get("user_id");
   const projectId = searchParams.get("project_id"); // can be "null" or actual UUID
   const mode = searchParams.get("mode");
 
   if (!userId || !mode) {
     return NextResponse.json({ error: "Missing params" }, { status: 400 });
+  }
+
+  if (userIdParam && userIdParam !== userId) {
+    return NextResponse.json({ error: "Forbidden user_id" }, { status: 403 });
   }
 
   let query = sb
@@ -53,6 +61,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const limited = checkRateLimit(req, RATE_LIMITS.STANDARD);
   if (limited) return limited;
+  const auth = await requireApiUser(req);
+  if (auth.response) return auth.response;
+  const userId = auth.user?.id;
 
   const sb = getSupabase();
   if (!sb) return NextResponse.json({ ok: false });
@@ -60,14 +71,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { user_id, project_id, mode, entries } = body as {
-      user_id: string;
+      user_id?: string;
       project_id: string | null;
       mode: "plan" | "design";
       entries: unknown[];
     };
 
-    if (!user_id || !mode || !Array.isArray(entries)) {
+    if (!userId || !mode || !Array.isArray(entries)) {
       return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    }
+
+    if (user_id && user_id !== userId) {
+      return NextResponse.json({ error: "Forbidden user_id" }, { status: 403 });
     }
 
     // Keep only last 100 entries for storage
@@ -77,7 +92,7 @@ export async function POST(req: NextRequest) {
     let findQuery = sb
       .from("undo_history")
       .select("id")
-      .eq("user_id", user_id)
+      .eq("user_id", userId)
       .eq("mode", mode);
 
     if (project_id) {
@@ -104,7 +119,7 @@ export async function POST(req: NextRequest) {
       const { error } = await sb
         .from("undo_history")
         .insert({
-          user_id,
+          user_id: userId,
           project_id: project_id || null,
           mode,
           entries: trimmed,

@@ -55,6 +55,8 @@ export interface RateLimitOptions {
   limit?: number;
   /** Time window in milliseconds. Default: 60s */
   windowMs?: number;
+  /** Optional logical scope, useful for grouping related endpoints. */
+  scope?: string;
 }
 
 /**
@@ -101,8 +103,8 @@ export function checkRateLimit(
   options: RateLimitOptions = {}
 ): NextResponse | null {
   const { windowMs = 60_000 } = options;
-  const ip = getClientIp(req);
-  if (rateLimit(ip, options)) return null;
+  const identifier = getRateLimitIdentifier(req, options.scope);
+  if (rateLimit(identifier, options)) return null;
 
   const retryAfterSeconds = Math.ceil(windowMs / 1000).toString();
   return NextResponse.json(
@@ -138,6 +140,21 @@ export function getClientIp(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
   return req.headers.get("x-real-ip") ?? "unknown";
+}
+
+/**
+ * Build a per-route identifier so one busy endpoint doesn't throttle all others.
+ */
+export function getRateLimitIdentifier(req: Request, scope = "default"): string {
+  const ip = getClientIp(req);
+  let pathname = "unknown";
+  try {
+    const parsed = new URL(req.url);
+    pathname = parsed.pathname || "unknown";
+  } catch {
+    // ignore malformed URL and keep fallback
+  }
+  return `${scope}:${pathname}:${ip}`;
 }
 
 /**

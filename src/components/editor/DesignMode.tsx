@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useUndoRedo } from "@/lib/hooks/use-history";
+import { authFetch } from "@/lib/auth-fetch";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Link2, Send, Trash2, ChevronDown,
@@ -380,7 +381,7 @@ export default function DesignMode({ aiModel, theme, brief, onBriefChange, onSwi
       const controller = new AbortController();
       abortRef.current = controller;
 
-      const response = await fetch("/api/design-chat", {
+      const response = await authFetch("/api/design-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -616,7 +617,7 @@ export default function DesignMode({ aiModel, theme, brief, onBriefChange, onSwi
     const cmsTypes = detectCmsTypes(updatedBrief);
     if (cmsTypes.length === 0) return;
     try {
-      await fetch("/api/setup-cms", {
+      await authFetch("/api/setup-cms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, cmsTypes }),
@@ -634,7 +635,7 @@ export default function DesignMode({ aiModel, theme, brief, onBriefChange, onSwi
     try {
       const allFiles = generateAllProjectFiles(brief);
       const files = Object.entries(allFiles).map(([path, content]) => ({ path, content }));
-      const res = await fetch("/api/deploy", {
+      const res = await authFetch("/api/deploy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectName: brief.name || "mein-projekt", files, framework: "nextjs" }),
@@ -1348,7 +1349,7 @@ export default function DesignMode({ aiModel, theme, brief, onBriefChange, onSwi
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch("/api/files?path_prefix=.d3/");
+                        const res = await authFetch("/api/files?path_prefix=.d3/");
                         if (!res.ok) throw new Error();
                         const data = await res.json();
                         const files = data.files as { path: string; content: string }[] | undefined;

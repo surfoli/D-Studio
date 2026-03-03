@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Layers, Code2, Clock, Settings, X, ChevronDown, ArrowRight, FolderPlus, ChevronRight, Trash2, Check } from "lucide-react";
-import { AppSettings, DEFAULT_SETTINGS, loadSettings, saveSettings, AI_MODELS } from "@/lib/settings";
+import { AppSettings, loadSettings, saveSettings, AI_MODELS } from "@/lib/settings";
 import GlassChat from "@/components/chat/GlassChat";
 import AuthGate, { UserMenu } from "@/components/auth/AuthGate";
 import OnboardingFlow, { hasSeenOnboarding } from "@/components/onboarding/OnboardingFlow";
@@ -223,32 +223,32 @@ function ProjectSwitcher({
 
 function AppContent({ user }: { user: User | null }) {
   const [mode, setMode] = useState<AppMode>("plan");
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [buildFromBrief, setBuildFromBrief] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
 
   // ── Central Project State ──
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [designBrief, setDesignBrief] = useState<DesignBrief | null>(null);
-  const [projects, setProjects] = useState<D3Project[]>([]);
+  const [bootstrapped] = useState(() => bootstrapProject());
+  const [projectId, setProjectId] = useState<string | null>(bootstrapped.projectId);
+  const [designBrief, setDesignBrief] = useState<DesignBrief | null>(bootstrapped.brief);
+  const [projects, setProjects] = useState<D3Project[]>(() => loadProjectList());
   // Ref so VibeCodingMode reset can be triggered
   const resetBuildRef = useRef<(() => void) | null>(null);
 
-  // Bootstrap projects on mount
-  useEffect(() => {
-    const { projectId: pid, brief } = bootstrapProject();
-    setProjectId(pid);
-    setDesignBrief(brief);
-    setProjects(loadProjectList());
-  }, []);
-
   // ── Unified AI — one engine for all modes + GlassChat ──
   const briefRef = useRef<DesignBrief | null>(designBrief);
-  briefRef.current = designBrief;
   const modeRef = useRef<AppMode>(mode);
-  modeRef.current = mode;
+
+  // Keep refs in sync outside render to satisfy React hook rules.
+  useEffect(() => {
+    briefRef.current = designBrief;
+  }, [designBrief]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   const ai = useAI({
     model: settings.aiModel,
@@ -266,8 +266,6 @@ function AppContent({ user }: { user: User | null }) {
     });
   }, [projectId]);
 
-  // Load settings
-  useEffect(() => { setSettings(loadSettings()); }, []);
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", settings.theme);
