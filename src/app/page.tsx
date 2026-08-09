@@ -8,11 +8,39 @@ import GlassChat from "@/components/chat/GlassChat";
 import AuthGate, { UserMenu } from "@/components/auth/AuthGate";
 import OnboardingFlow, { hasSeenOnboarding } from "@/components/onboarding/OnboardingFlow";
 import type { User } from "@/lib/auth";
-import type { DesignBrief, DesignBriefSection } from "@/lib/design-brief";
-import { saveProjectBrief, loadProjectBrief, createProject, loadProjectList, deleteProject, bootstrapProject, setActiveProjectId, saveProjectFiles, type D3Project } from "@/lib/project-store";
+import type { DesignBrief, DesignBriefPage, DesignBriefSection } from "@/lib/design-brief";
+import {
+  saveProjectBrief,
+  loadProjectBrief,
+  createProject,
+  loadProjectList,
+  deleteProject,
+  bootstrapProject,
+  setActiveProjectId,
+  saveProjectFiles,
+  loadProjectFiles,
+  saveProjectGraph,
+  loadProjectGraph,
+  type D3Project,
+} from "@/lib/project-store";
 import { createDesignBrief } from "@/lib/design-brief";
+import { generateAllProjectFiles } from "@/lib/section-code-templates";
+import { generatePlanMarkdownFromBrief } from "@/lib/brief-to-plan";
 import { useAI, type AIChatMode } from "@/lib/hooks/use-ai";
 import { authFetch } from "@/lib/auth-fetch";
+import {
+  applyGraphToBrief,
+  createProjectGraphFromBrief,
+  getProjectGraphContentKey,
+  mergeProjectGraphWithFiles,
+  projectGraphToFiles,
+  type ProjectGraph,
+} from "@/lib/project-graph";
+import {
+  loadProjectPreview,
+  saveProjectPreview,
+  type ProjectPreviewState,
+} from "@/lib/preview-session";
 
 // Lazy-load mode components
 const PlanMode = lazy(() => import("@/components/editor/PlanMode"));
@@ -65,6 +93,19 @@ function makeTemplateSection(
   };
 }
 
+function makeTemplatePage(
+  name: string,
+  slug: string,
+  sections: DesignBriefSection[]
+): DesignBriefPage {
+  return {
+    id: `page_${slug}_${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    slug,
+    sections,
+  };
+}
+
 const PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
     id: "saas",
@@ -96,6 +137,28 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
         makeTemplateSection("pricing-3tier", "Pricing", "Preise verständlich zeigen", "fade-up"),
         makeTemplateSection("cta-fullscreen", "Finale CTA", "Letzter Conversion-Impuls", "scale-in"),
         makeTemplateSection("footer-big", "Footer", "Navigation + Legal + Kontakt", "none"),
+      ];
+      brief.additionalPages = [
+        makeTemplatePage("Solutions", "solutions", [
+          makeTemplateSection("hero-minimal", "Solutions Hero", "Produktvorteile nach Zielgruppen ordnen", "fade-in"),
+          makeTemplateSection("features-alternating", "Use Cases", "Loesungen erklaeren", "scroll-reveal"),
+          makeTemplateSection("data-stats-split", "ROI", "Kennzahlen mit Kontext", "counter"),
+          makeTemplateSection("testimonials-cards", "Proof", "Vertrauen durch Kundenstimmen", "stagger"),
+          makeTemplateSection("cta-split", "Demo CTA", "Naechsten Schritt klar machen", "fade-up"),
+          makeTemplateSection("footer-big", "Footer", "Navigation + Legal + Kontakt", "none"),
+        ]),
+        makeTemplatePage("Pricing", "pricing", [
+          makeTemplateSection("hero-minimal", "Pricing Hero", "Pakete schnell erklaeren", "fade-in"),
+          makeTemplateSection("pricing-3tier", "Pricing Grid", "Tarife vergleichen", "fade-up"),
+          makeTemplateSection("content-faq", "FAQ", "Einwaende vor Signup ausraeumen", "fade-up"),
+          makeTemplateSection("cta-fullscreen", "Signup CTA", "Test oder Demo pushen", "scale-in"),
+          makeTemplateSection("footer-big", "Footer", "Navigation + Legal + Kontakt", "none"),
+        ]),
+        makeTemplatePage("Contact", "contact", [
+          makeTemplateSection("hero-minimal", "Contact Hero", "Support und Sales trennen", "fade-in"),
+          makeTemplateSection("interactive-contact", "Kontaktformular", "Lead oder Demo-Anfrage", "fade-up"),
+          makeTemplateSection("footer-big", "Footer", "Navigation + Legal + Kontakt", "none"),
+        ]),
       ];
       brief.notes = "Fokus: Klarheit, schnelle Aktivierung, starker Trial-CTA.";
       return brief;
@@ -145,6 +208,27 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
         makeTemplateSection("interactive-contact", "Kontakt", "Lead-Formular + Kontaktinfos", "fade-up"),
         makeTemplateSection("footer-big", "Footer", "Links, Legal, Social", "none"),
       ];
+      brief.additionalPages = [
+        makeTemplatePage("Services", "services", [
+          makeTemplateSection("hero-minimal", "Services Hero", "Angebot klar strukturieren", "fade-in"),
+          makeTemplateSection("showcase-service-cards", "Leistungsmodule", "Pakete und Spezialisierungen", "stagger"),
+          makeTemplateSection("data-timeline", "Prozess", "Zusammenarbeit transparent machen", "scroll-reveal"),
+          makeTemplateSection("cta-split", "Projekt CTA", "Direkten Kontakt ausloesen", "fade-up"),
+          makeTemplateSection("footer-big", "Footer", "Links, Legal, Social", "none"),
+        ]),
+        makeTemplatePage("Work", "work", [
+          makeTemplateSection("hero-editorial", "Work Hero", "Referenzen stark inszenieren", "clip-reveal"),
+          makeTemplateSection("showcase-case-studies", "Projektliste", "Arbeiten mit Resultaten", "stagger"),
+          makeTemplateSection("testimonials-cards", "Client Voices", "Vertrauen vertiefen", "fade-up"),
+          makeTemplateSection("cta-banner", "Briefing CTA", "Lead-Uebergang", "fade-in"),
+          makeTemplateSection("footer-big", "Footer", "Links, Legal, Social", "none"),
+        ]),
+        makeTemplatePage("Contact", "contact", [
+          makeTemplateSection("hero-minimal", "Contact Hero", "Anfrage schnell vorbereiten", "fade-in"),
+          makeTemplateSection("interactive-contact", "Kontaktformular", "Lead-Formular + Kontaktinfos", "fade-up"),
+          makeTemplateSection("footer-big", "Footer", "Links, Legal, Social", "none"),
+        ]),
+      ];
       brief.notes = "Fokus: Vertrauen, Premium-Eindruck, hohe Lead-Conversion.";
       return brief;
     },
@@ -188,6 +272,26 @@ const PROJECT_TEMPLATES: ProjectTemplate[] = [
         makeTemplateSection("testimonials-cards", "Reviews", "Vertrauen vor Kauf", "stagger"),
         makeTemplateSection("cta-banner", "Kauf-CTA", "Starker Abschluss", "fade-in"),
         makeTemplateSection("footer-columns", "Footer", "Infos + Richtlinien", "none"),
+      ];
+      brief.additionalPages = [
+        makeTemplatePage("Catalog", "catalog", [
+          makeTemplateSection("hero-minimal", "Catalog Hero", "Kategorien und Filter erklaeren", "fade-in"),
+          makeTemplateSection("showcase-gallery", "Produktgrid", "Produkte modular auflisten", "stagger"),
+          makeTemplateSection("data-progress", "Vergleich", "Differenzierung sichtbar machen", "scroll-reveal"),
+          makeTemplateSection("cta-banner", "Kauf CTA", "Direkt weiterfuehren", "fade-in"),
+          makeTemplateSection("footer-columns", "Footer", "Infos + Richtlinien", "none"),
+        ]),
+        makeTemplatePage("FAQ", "faq", [
+          makeTemplateSection("hero-minimal", "FAQ Hero", "Kaufhuerden abbauen", "fade-in"),
+          makeTemplateSection("content-faq", "FAQ Liste", "Versand, Retouren, Material", "fade-up"),
+          makeTemplateSection("cta-banner", "Support CTA", "Kontakt oder Bestellung absichern", "fade-in"),
+          makeTemplateSection("footer-columns", "Footer", "Infos + Richtlinien", "none"),
+        ]),
+        makeTemplatePage("Contact", "contact", [
+          makeTemplateSection("hero-minimal", "Contact Hero", "Support und Fragen aufnehmen", "fade-in"),
+          makeTemplateSection("interactive-contact", "Kontaktformular", "Support, Vertrieb, Rueckfragen", "fade-up"),
+          makeTemplateSection("footer-columns", "Footer", "Infos + Richtlinien", "none"),
+        ]),
       ];
       brief.notes = "Fokus: Produktverständnis in Sekunden, Vertrauen, klarer Kaufpfad.";
       return brief;
@@ -254,6 +358,10 @@ function toImportableBrief(value: unknown, fallbackName: string): DesignBrief {
 const LIBRARY_RECENT_KEY = "d3studio.library.recent";
 const LIBRARY_FAVORITES_KEY = "d3studio.library.favorites";
 
+function sameGraph(a: ProjectGraph | null, b: ProjectGraph | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function loadLibraryIds(key: string): string[] {
   try {
     const raw = localStorage.getItem(key);
@@ -264,6 +372,12 @@ function loadLibraryIds(key: string): string[] {
   } catch {
     return [];
   }
+}
+
+function isLocalDevSession(): boolean {
+  if (typeof window === "undefined") return false;
+  if (process.env.NODE_ENV === "production") return false;
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }
 
 function saveLibraryIds(key: string, ids: string[]): void {
@@ -904,8 +1018,8 @@ function AppContent({ user }: { user: User | null }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [buildFromBrief, setBuildFromBrief] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
-  const [showLibrary, setShowLibrary] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(() => isLocalDevSession() ? false : !hasSeenOnboarding());
+  const [showLibrary, setShowLibrary] = useState(() => !isLocalDevSession());
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [recentProjectIds, setRecentProjectIds] = useState<string[]>(() => loadLibraryIds(LIBRARY_RECENT_KEY));
   const [favoriteProjectIds, setFavoriteProjectIds] = useState<string[]>(() => loadLibraryIds(LIBRARY_FAVORITES_KEY));
@@ -915,12 +1029,23 @@ function AppContent({ user }: { user: User | null }) {
   const [bootstrapped] = useState(() => bootstrapProject());
   const [projectId, setProjectId] = useState<string | null>(bootstrapped.projectId);
   const [designBrief, setDesignBrief] = useState<DesignBrief | null>(bootstrapped.brief);
+  const [projectGraph, setProjectGraph] = useState<ProjectGraph | null>(() => {
+    if (!bootstrapped.projectId) return createProjectGraphFromBrief(bootstrapped.brief);
+    const existing = loadProjectGraph(bootstrapped.projectId);
+    const files = loadProjectFiles(bootstrapped.projectId) ?? {};
+    const base = existing ?? createProjectGraphFromBrief(bootstrapped.brief);
+    return mergeProjectGraphWithFiles(base, files);
+  });
+  const [projectPreview, setProjectPreview] = useState<ProjectPreviewState | null>(() => (
+    bootstrapped.projectId ? loadProjectPreview(bootstrapped.projectId) : null
+  ));
   const [projects, setProjects] = useState<D3Project[]>(() => loadProjectList());
   // Ref so VibeCodingMode reset can be triggered
   const resetBuildRef = useRef<(() => void) | null>(null);
 
   // ── Unified AI — one engine for all modes + GlassChat ──
   const briefRef = useRef<DesignBrief | null>(designBrief);
+  const graphRef = useRef<ProjectGraph | null>(projectGraph);
   const modeRef = useRef<AppMode>(mode);
 
   // Keep refs in sync outside render to satisfy React hook rules.
@@ -929,8 +1054,14 @@ function AppContent({ user }: { user: User | null }) {
   }, [designBrief]);
 
   useEffect(() => {
+    graphRef.current = projectGraph;
+  }, [projectGraph]);
+
+  useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  const showFloatingAiChat = mode !== "build";
 
   const ai = useAI({
     model: settings.aiModel,
@@ -948,6 +1079,31 @@ function AppContent({ user }: { user: User | null }) {
     });
   }, [projectId]);
 
+  const updateProjectGraph = useCallback((updater: (prev: ProjectGraph) => ProjectGraph) => {
+    const currentGraph = graphRef.current;
+    const currentBrief = briefRef.current;
+    if (!currentGraph || !currentBrief) return;
+
+    const nextGraphBase = updater(currentGraph);
+    if (getProjectGraphContentKey(nextGraphBase) === getProjectGraphContentKey(currentGraph)) {
+      return;
+    }
+
+    const nextGraph = {
+      ...nextGraphBase,
+      updatedAt: Date.now(),
+    };
+
+    setProjectGraph(nextGraph);
+    graphRef.current = nextGraph;
+    if (projectId) saveProjectGraph(projectId, nextGraph);
+
+    const nextBrief = applyGraphToBrief(currentBrief, nextGraph);
+    setDesignBrief(nextBrief);
+    briefRef.current = nextBrief;
+    if (projectId) saveProjectBrief(projectId, nextBrief);
+  }, [projectId]);
+
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", settings.theme);
@@ -960,7 +1116,15 @@ function AppContent({ user }: { user: User | null }) {
     setActiveProjectId(id);
     setRecentProjectIds((prev) => touchRecentId(prev, id));
     const brief = loadProjectBrief(id);
-    setDesignBrief(brief ?? createDesignBrief());
+    const nextBrief = brief ?? createDesignBrief();
+    const localFiles = loadProjectFiles(id) ?? {};
+    const nextGraph = mergeProjectGraphWithFiles(
+      loadProjectGraph(id) ?? createProjectGraphFromBrief(nextBrief),
+      localFiles
+    );
+    setDesignBrief(nextBrief);
+    setProjectGraph(nextGraph);
+    setProjectPreview(loadProjectPreview(id));
     setProjectId(id);
     setProjects(loadProjectList());
     ai.clearMessages();
@@ -1000,9 +1164,13 @@ function AppContent({ user }: { user: User | null }) {
   // ── New project ──
   const handleNewProject = useCallback(() => {
     const { project, brief } = createProject();
+    const graph = createProjectGraphFromBrief(brief);
+    saveProjectGraph(project.id, graph);
     setRecentProjectIds((prev) => touchRecentId(prev, project.id));
     setProjectId(project.id);
     setDesignBrief(brief);
+    setProjectGraph(graph);
+    setProjectPreview(null);
     setProjects(loadProjectList());
     ai.clearMessages();
     setBuildFromBrief(false);
@@ -1049,9 +1217,13 @@ function AppContent({ user }: { user: User | null }) {
     const brief = template.createBrief();
     brief.name = project.name;
     saveProjectBrief(project.id, brief);
+    const graph = createProjectGraphFromBrief(brief);
+    saveProjectGraph(project.id, graph);
 
     setProjectId(project.id);
     setDesignBrief(brief);
+    setProjectGraph(graph);
+    setProjectPreview(null);
     setProjects(loadProjectList());
     ai.clearMessages();
     setBuildFromBrief(false);
@@ -1060,7 +1232,19 @@ function AppContent({ user }: { user: User | null }) {
     setShowLibrary(false);
     setLibraryError(null);
 
-    await persistFilesForProject(project.id, template.planFiles);
+    // Generate code files from brief + plan markdown + template plan files
+    const codeFiles = generateAllProjectFiles(brief);
+    const planMarkdown = generatePlanMarkdownFromBrief(brief);
+    const allFiles: Record<string, string> = {};
+    // 1. Template plan files (.d3/ markdown)
+    for (const f of template.planFiles) allFiles[f.path] = f.content;
+    // 2. Auto-generated plan markdown (STYLE, PAGES, TECHSTACK) — only if not in template
+    for (const f of planMarkdown) {
+      if (!allFiles[f.path]) allFiles[f.path] = f.content;
+    }
+    // 3. Code files (src/, package.json, etc.)
+    Object.assign(allFiles, codeFiles);
+    await persistFilesForProject(project.id, Object.entries(allFiles).map(([path, content]) => ({ path, content })));
   }, [ai, persistFilesForProject]);
 
   const handleImportClick = useCallback(() => {
@@ -1101,9 +1285,16 @@ function AppContent({ user }: { user: User | null }) {
 
       const importedFiles = toImportableFiles(filesCandidate);
       await persistFilesForProject(project.id, importedFiles);
+      const importedGraph = mergeProjectGraphWithFiles(
+        createProjectGraphFromBrief(importedBrief),
+        Object.fromEntries(importedFiles.map((entry) => [entry.path, entry.content]))
+      );
+      saveProjectGraph(project.id, importedGraph);
 
       setProjectId(project.id);
       setDesignBrief(importedBrief);
+      setProjectGraph(importedGraph);
+      setProjectPreview(null);
       setProjects(loadProjectList());
       ai.clearMessages();
       setBuildFromBrief(false);
@@ -1119,6 +1310,44 @@ function AppContent({ user }: { user: User | null }) {
   const handleImportFileDrop = useCallback((file: File) => {
     void importProjectFromFile(file);
   }, [importProjectFromFile]);
+
+  useEffect(() => {
+    if (!projectId || !designBrief) return;
+
+    const files = loadProjectFiles(projectId) ?? {};
+    const nextGraph = mergeProjectGraphWithFiles(
+      createProjectGraphFromBrief(designBrief, graphRef.current ?? undefined),
+      files
+    );
+
+    if (!sameGraph(graphRef.current, nextGraph)) {
+      setProjectGraph(nextGraph);
+      saveProjectGraph(projectId, nextGraph);
+    }
+  }, [projectId, designBrief]);
+
+  useEffect(() => {
+    if (!projectId || !projectGraph) return;
+
+    saveProjectGraph(projectId, projectGraph);
+    const graphFiles = projectGraphToFiles(projectGraph);
+    const existing = loadProjectFiles(projectId) ?? {};
+    saveProjectFiles(projectId, { ...existing, ...graphFiles });
+
+    const timer = window.setTimeout(() => {
+      void persistFilesForProject(
+        projectId,
+        Object.entries(graphFiles).map(([path, content]) => ({ path, content }))
+      );
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [projectId, projectGraph, persistFilesForProject]);
+
+  const handlePreviewStateChange = useCallback((preview: ProjectPreviewState) => {
+    setProjectPreview(preview);
+    saveProjectPreview(preview);
+  }, []);
 
   const handleImportFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1238,11 +1467,44 @@ function AppContent({ user }: { user: User | null }) {
             <Sparkles size={11} />
             Bibliothek
           </button>
-          {/* Sync indicator — all modes use same project */}
-          <div title="Alle Modi synchron" style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 99, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)" }}>
-            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e" }} />
-            <span style={{ fontSize: "0.5rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#22c55e" }}>Sync</span>
-          </div>
+          <button
+            onClick={() => setSettings((s) => ({ ...s, liveSyncEnabled: !s.liveSyncEnabled }))}
+            title="Plan, Design und Code automatisch verbunden halten"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 10px",
+              borderRadius: 99,
+              border: settings.liveSyncEnabled
+                ? "1px solid rgba(34,197,94,0.15)"
+                : "1px solid var(--d3-glass-border)",
+              background: settings.liveSyncEnabled
+                ? "rgba(34,197,94,0.08)"
+                : "var(--d3-surface)",
+              cursor: "pointer",
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: settings.liveSyncEnabled ? "#22c55e" : "var(--d3-text-ghost)",
+              }}
+            />
+            <span
+              style={{
+                fontSize: "0.5rem",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: settings.liveSyncEnabled ? "#22c55e" : "var(--d3-text-tertiary)",
+              }}
+            >
+              {settings.liveSyncEnabled ? "Sync an" : "Sync aus"}
+            </span>
+          </button>
         </div>
 
         {/* Mode Tabs — Center */}
@@ -1349,7 +1611,11 @@ function AppContent({ user }: { user: User | null }) {
                 <PlanMode
                   theme={settings.theme === "light" ? "light" : "dark"}
                   aiModel={settings.aiModel}
+                  liveSyncEnabled={settings.liveSyncEnabled}
                   brief={designBrief}
+                  graph={projectGraph}
+                  onGraphChange={updateProjectGraph}
+                  previewState={projectPreview}
                   onBriefChange={updateDesignBrief}
                   userId={user?.id ?? null}
                   projectId={projectId}
@@ -1370,7 +1636,11 @@ function AppContent({ user }: { user: User | null }) {
                 <DesignMode
                   aiModel={settings.aiModel}
                   theme={settings.theme === "light" ? "light" : "dark"}
+                  liveSyncEnabled={settings.liveSyncEnabled}
                   brief={designBrief}
+                  graph={projectGraph}
+                  onGraphChange={updateProjectGraph}
+                  previewState={projectPreview}
                   onBriefChange={updateDesignBrief}
                   onSwitchToBuild={() => { setBuildFromBrief(true); setMode("build"); }}
                   userId={user?.id ?? null}
@@ -1404,7 +1674,12 @@ function AppContent({ user }: { user: User | null }) {
               aiModel={settings.aiModel}
               onModelChange={(model: string) => setSettings((s) => ({ ...s, aiModel: model }))}
               theme={settings.theme === "light" ? "light" : "dark"}
+              liveSyncEnabled={settings.liveSyncEnabled}
               brief={designBrief}
+              graph={projectGraph}
+              previewState={projectPreview}
+              onGraphChange={updateProjectGraph}
+              onPreviewStateChange={handlePreviewStateChange}
               onBriefChange={updateDesignBrief}
               buildFromBrief={buildFromBrief}
               onBuildFromBriefConsumed={() => setBuildFromBrief(false)}
@@ -1487,6 +1762,16 @@ function AppContent({ user }: { user: User | null }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
+                    <div style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--d3-text-secondary)" }}>Live-Sync</div>
+                    <div style={{ fontSize: "0.6875rem", color: "var(--d3-text-tertiary)", marginTop: 2 }}>Plan, Design und Code optional direkt verbunden halten</div>
+                  </div>
+                  <button onClick={() => setSettings((s) => ({ ...s, liveSyncEnabled: !s.liveSyncEnabled }))}
+                    style={{ width: 40, height: 22, borderRadius: 11, background: settings.liveSyncEnabled ? "rgba(34,197,94,0.4)" : "var(--d3-toggle-bg)", border: "none", cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: "50%", background: settings.liveSyncEnabled ? "#22c55e" : "var(--d3-toggle-knob)", position: "absolute", top: 3, left: settings.liveSyncEnabled ? 21 : 3, transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)" }} />
+                  </button>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
                     <div style={{ fontSize: "0.8125rem", fontWeight: 500, color: "var(--d3-text-secondary)" }}>Auto-Speichern</div>
                     <div style={{ fontSize: "0.6875rem", color: "var(--d3-text-tertiary)", marginTop: 2 }}>Projekte automatisch sichern</div>
                   </div>
@@ -1506,19 +1791,21 @@ function AppContent({ user }: { user: User | null }) {
         {showOnboarding && <OnboardingFlow onComplete={() => setShowOnboarding(false)} />}
       </AnimatePresence>
 
-      {/* ── Unified Floating AI Chat — same instance as Build mode chat ── */}
-      <GlassChat
-        messages={ai.messages}
-        onSend={(msg) => ai.send(msg, modeRef.current as AIChatMode)}
-        isStreaming={ai.isStreaming}
-        streamingText={ai.streamingText}
-        placeholder={
-          mode === "plan" ? "Beschreib dein Projekt..." :
-          mode === "design" ? "Beschreib dein Design..." :
-          "Was soll ich bauen?"
-        }
-        mode={mode}
-      />
+      {/* Show the floating chat only in modes without a dedicated AI side panel. */}
+      {showFloatingAiChat && (
+        <GlassChat
+          messages={ai.messages}
+          onSend={(msg) => ai.send(msg, modeRef.current as AIChatMode)}
+          isStreaming={ai.isStreaming}
+          streamingText={ai.streamingText}
+          placeholder={
+            mode === "plan" ? "Beschreib dein Projekt..." :
+            mode === "design" ? "Beschreib dein Design..." :
+            "Was soll ich bauen?"
+          }
+          mode={mode}
+        />
+      )}
     </div>
   );
 }

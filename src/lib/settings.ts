@@ -4,6 +4,7 @@ export interface AppSettings {
   aiModel: string;
   cascadeMode: boolean;
   autoSave: boolean;
+  liveSyncEnabled: boolean;
   zoomSpeed: number; // 1–5, default 3
   activeRoles: string[];
   userLevel: string;
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiModel: "claude-sonnet-4-6",
   cascadeMode: false,
   autoSave: true,
+  liveSyncEnabled: true,
   zoomSpeed: 3,
   activeRoles: ["developer", "designer"],
   userLevel: "beginner",

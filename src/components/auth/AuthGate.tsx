@@ -25,6 +25,10 @@ interface AuthGateProps {
  */
 export default function AuthGate({ children }: AuthGateProps) {
   const authEnabled = isAuthEnabled();
+  const devGuestBypass =
+    process.env.NODE_ENV !== "production" &&
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(authEnabled);
 
@@ -55,6 +59,11 @@ export default function AuthGate({ children }: AuthGateProps) {
 
   // Auth not configured — skip login, render app directly
   if (!authEnabled) {
+    return <>{children(null)}</>;
+  }
+
+  // Local dev should never be blocked by auth while building the app.
+  if (devGuestBypass) {
     return <>{children(null)}</>;
   }
 

@@ -2,13 +2,12 @@
  * Next.js Server Instrumentation (runs once on server startup).
  * https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  *
- * This is the ONLY place that needs to import env.ts.
- * If required env vars are missing, the server refuses to start with a clear error.
+ * NOTE: Next.js 16 + Turbopack has a known race condition where .env.local
+ * is not yet loaded when this instrumentation hook runs. Env validation
+ * is therefore skipped here and happens lazily in each API route via env.ts.
  */
 
 export async function register() {
-  // Only validate on the server side, not in the browser bundle
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    await import("./env");
-  }
+  // Env validation is handled lazily in API routes.
+  // Doing it here causes a Turbopack race condition with .env.local loading.
 }

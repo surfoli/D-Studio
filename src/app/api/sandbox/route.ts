@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sandboxManager } from "@/lib/sandbox/e2b-manager";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadEnv } from "@/lib/load-env";
+loadEnv();
 
 interface SandboxRequestBody {
   action: "create" | "exec" | "kill" | "write" | "read" | "install" | "dev";

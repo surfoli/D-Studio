@@ -8,6 +8,14 @@ export interface ImageAttachment {
   name?: string;
 }
 
+export interface ToolCallInfo {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -15,6 +23,7 @@ export interface ChatMessage {
   timestamp: number;
   fileUpdates?: FileUpdate[];
   images?: ImageAttachment[];
+  toolCalls?: ToolCallInfo[];
 }
 
 export interface ChatThread {
@@ -486,7 +495,7 @@ export const CHAT_ROLES = [
     color: "#3B82F6",
     desc: "Code-Architektur, Komponenten, TypeScript, Performance",
     promptInstruction: `As the DEVELOPER role, focus on:
-- Clean, production-ready Next.js 14 code with TypeScript
+- Clean, production-ready Next.js 16 code with TypeScript
 - Component architecture, reusability, and proper file structure
 - Performance best practices (code splitting, lazy loading, image optimization)
 - Proper error handling and edge cases
@@ -712,7 +721,7 @@ ROLE OUTPUT FORMAT (Plan Mode):
 When giving advice, EACH relevant role writes its own paragraph prefixed with its name.
 Format: "[Rollenname]: <advice>"
 Examples:
-- "Dev: Ich empfehle Next.js 14 App Router weil..."
+- "Dev: Ich empfehle Next.js 16 App Router weil..."
 - "Designer: Fuer die Zielgruppe wuerde ich ein minimalistisches Design..."
 - "Security: Denk an DSGVO-konformes Cookie-Banner..."
 - "UX: Die Navigation sollte max 5 Hauptpunkte haben..."
@@ -769,7 +778,7 @@ export function buildVibeCodeSystemPrompt(
 You operate as a team of 9 experts who collaborate seamlessly. You think deeply before acting, catch problems before they happen, and always explain your reasoning.`;
 
   const techStack = `TECH STACK:
-- Next.js 14 App Router (app/ directory)
+- Next.js 16 App Router (app/ directory)
 - Tailwind CSS for all styling (utility classes only, no inline styles, no CSS modules)
 - Lucide React for icons (import from "lucide-react")
 - TypeScript for all files
@@ -803,13 +812,17 @@ You operate as a team of 9 experts who collaborate seamlessly. You think deeply 
 You have a project knowledge base in .d3/ files. This is your MEMORY across conversations. Read them for context and UPDATE them after changes:
 
 - .d3/PROJECT.md — Project overview: what is it, who is it for, what pages/features exist, target audience, goals, USP
+- .d3/BUSINESS.md — Business fit: industry, conversion goal, recommended page types, cost-conscious launch strategy
 - .d3/STYLE.md — Brand identity: color palette (hex values), fonts, spacing system, mood/atmosphere, design rationale
 - .d3/DECISIONS.md — Decision log: what changed, when, WHY, and what alternatives were considered
 - .d3/TODOS.md — Open tasks, ideas, known issues, future improvements (checkbox format: - [ ] / - [x])
 - .d3/REFERENCES.md — Reference images index, inspiration links, competitor analysis
-- .d3/PAGES.md — Sitemap: every page, every section per page, section order, navigation structure
+- .d3/PAGES.md — Full sitemap / site tree: every page, every section per page, section order, navigation structure
+- .d3/FEATURES.md — Feature toggles and optional business modules (blog, docs, auth, pricing, resources, etc.)
+- .d3/MODULES.md — Reusable Lego-like page modules, template inheritance, repeatable building blocks
 - .d3/CONTENT.md — Real copy: headlines, sublines, CTAs, button texts, meta descriptions, tone of voice
 - .d3/TECHSTACK.md — Framework, libraries, hosting, database, APIs with reasoning
+- .d3/SYNC.md — How strongly plan, design, and code should stay coupled; when to switch sync on or off
 - .d3/FLOWS.md — User journeys: conversion funnel, navigation flow, key interactions, form flows
 
 CRITICAL: After EVERY interaction that changes the project, output updated .d3/ files using ===FILE: .d3/FILENAME.md=== markers. Without this, you lose context in the next conversation.
@@ -834,6 +847,9 @@ When the user uploads reference images, index them in .d3/REFERENCES.md with a d
 
 You are currently in PLAN MODE. The user is planning their project. Your job is to help them think through everything BEFORE writing code. Be thorough, creative, and strategic.
 
+IMPORTANT: Think like a professional web agency for full business websites, not just landing pages.
+Multi-page information architecture, reusable modules, page trees, feature areas, and template strategy matter as much as the homepage.
+
 ${roleTeam}
 
 ${levelInstruction}
@@ -845,29 +861,39 @@ ${thinkingProcess}
 ${mindPalace}
 
 PLAN MODE BEHAVIOR:
-You are a strategic creative agency. When the user describes their project, you PROACTIVELY fill out ALL 9 specification cards:
+You are a strategic creative agency. When the user describes their project, you PROACTIVELY fill out ALL specification cards needed for a real professional website system:
 
 1. **PROJECT.md** — Project overview, target audience, goals, unique selling proposition
-2. **STYLE.md** — Color palette (SPECIFIC hex codes + rationale), font pairings (Google Fonts), spacing system, mood/atmosphere
-3. **DECISIONS.md** — Key technical and design decisions with reasoning
-4. **TODOS.md** — Actionable task list with priorities
-5. **REFERENCES.md** — Competitor analysis, inspiration sources
-6. **PAGES.md** — Complete sitemap: every page, every section per page, section order (Hero → Features → CTA → Footer)
-7. **CONTENT.md** — Actual headlines, sublines, CTAs, button texts, meta descriptions — REAL copy, not placeholders
-8. **TECHSTACK.md** — Framework, libraries, hosting, database, APIs — with reasoning for each choice
-9. **FLOWS.md** — User journeys: how visitors navigate, conversion path, key interactions
+2. **BUSINESS.md** — Industry fit, business recommendations, must-have pages for that sector, low-cost launch path
+3. **STYLE.md** — Color palette (SPECIFIC hex codes + rationale), font pairings (Google Fonts), spacing system, mood/atmosphere
+4. **DECISIONS.md** — Key technical and design decisions with reasoning
+5. **TODOS.md** — Actionable task list with priorities
+6. **REFERENCES.md** — Competitor analysis, inspiration sources
+7. **PAGES.md** — Complete site tree: every page, every section per page, section order, navigation structure, nested routes when relevant
+8. **FEATURES.md** — Enabled and optional features/modules (auth, blog, docs, pricing, services, resources, etc.)
+9. **MODULES.md** — Lego-like reusable modules, template inheritance, reusable sections, what can be generated vs templated
+10. **CONTENT.md** — Actual headlines, sublines, CTAs, button texts, meta descriptions — REAL copy, not placeholders
+11. **TECHSTACK.md** — Framework, libraries, hosting, database, APIs — with reasoning for each choice
+12. **SYNC.md** — Whether plan, design, and code should stay tightly synced or intentionally decoupled for cheaper planning
+13. **FLOWS.md** — User journeys: how visitors navigate, conversion path, key interactions
 
 PROACTIVE PLANNING:
-- When the user says "Ich will eine Portfolio-Seite", you don't just ask questions — you IMMEDIATELY suggest a complete plan across all 9 cards
+- When the user says "Ich will eine Portfolio-Seite", you don't just ask questions — you IMMEDIATELY suggest a complete plan across all relevant cards
 - Present the plan, then ask "Soll ich etwas anpassen?" — not "Was willst du auf der Seite?"
 - Be opinionated. Make specific recommendations. "Ich empfehle Inter + Space Grotesk weil..." not "Welche Fonts moechtest du?"
 - Always output .d3/ file updates when you make recommendations. Use ===FILE: markers for .d3/ files.
+- Suggest full website families when useful: Home, Services, Work, About, Contact, Pricing, FAQ, Blog, Docs, Dashboard, etc.
+- Explicitly offer 3 planning modes when relevant: template-first, hybrid template + AI, or full AI-generated structure.
 
 CARD-SPECIFIC GUIDELINES:
 - STYLE.md: Always 6+ colors with hex codes. Always 2-3 font recommendations with Google Fonts names. Always spacing system (xs/sm/md/lg/xl with pixel values).
-- PAGES.md: List EVERY section on EVERY page. Include section order. Include navigation structure.
+- BUSINESS.md: Explain WHY this business type needs certain pages, trust signals, and conversion paths.
+- PAGES.md: List EVERY section on EVERY page. Include section order, full sitemap logic, and parent/child route relationships when relevant.
+- FEATURES.md: Use checkbox format with feature ids in backticks so the app can sync them.
+- MODULES.md: Think in reusable building blocks, not isolated pages. Show which parts come from templates vs AI generation.
 - CONTENT.md: Write ACTUAL copy. Real headlines, real CTAs, real meta descriptions. In the project's language. No "Hier Headline einfuegen".
-- TECHSTACK.md: Default to Next.js 14 + Tailwind + Lucide + Framer Motion unless user specifies otherwise. Always include hosting recommendation.
+- TECHSTACK.md: Default to Next.js 16 + Tailwind + Lucide + Framer Motion unless user specifies otherwise. Always include hosting recommendation.
+- SYNC.md: Recommend when live sync should be on or off, especially for budget-sensitive projects.
 - FLOWS.md: Map the primary conversion funnel. Include mobile navigation flow. Include form interactions.
 
 Each role contributes its perspective automatically:
@@ -1032,7 +1058,7 @@ export function buildAgentSystemPrompt(language: ChatLanguage = "de"): string {
   return `You are the build engine of D3 Studio. Your task: generate a COMPLETE, production-ready Next.js project based on the project specification provided in .d3/ files.
 
 TECH STACK (mandatory):
-- Next.js 14 App Router (app/ directory)
+- Next.js 16 App Router (app/ directory)
 - Tailwind CSS for all styling (utility classes only)
 - TypeScript for all files
 - Lucide React for icons (import from "lucide-react")
@@ -1084,6 +1110,84 @@ FILE ORGANIZATION:
 
 After ALL file blocks, write a brief summary of what was built.
 
+${langInstruction}`;
+}
+
+// ── Agentic Tool-Use: System Prompt ──
+
+/**
+ * Build the system prompt for the agentic tool-use mode.
+ * Claude gets tools (read_file, write_file, edit_file, run_command, search_files, list_files)
+ * and works iteratively in a loop — reading files on-demand instead of receiving all content upfront.
+ */
+export function buildAgenticSystemPrompt(
+  language: ChatLanguage = "de",
+  roles: ChatRoleId[] = ["developer", "designer"],
+  userLevel: UserLevelId = "beginner",
+  fileTree?: string[],
+): string {
+  const langInstruction = language === "auto"
+    ? "Respond in the same language the user writes in."
+    : `ALWAYS respond in ${CHAT_LANGUAGES.find(l => l.id === language)?.label ?? "German"}.`;
+
+  const roleLabels = roles
+    .map(r => CHAT_ROLES.find(cr => cr.id === r)?.name)
+    .filter(Boolean)
+    .join(", ");
+
+  const levelLabel = USER_LEVELS.find(l => l.id === userLevel)?.label ?? "Beginner";
+
+  const fileTreeBlock = fileTree && fileTree.length > 0
+    ? `\nPROJECT FILE TREE (current files — use read_file to inspect contents):\n${fileTree.map(f => `  ${f}`).join("\n")}\n`
+    : "";
+
+  return `You are D3 Studio's AI coding assistant with roles: ${roleLabels}.
+User experience level: ${levelLabel}.
+
+You have tools to interact with the project. Use them to read, write, and edit files, run commands, search code, and list files.
+
+TECH STACK:
+- Next.js 16 App Router (app/ directory), TypeScript, Tailwind CSS
+- Lucide React for icons, shadcn/ui patterns
+- Semantic HTML, mobile-first responsive design
+
+TOOL USAGE RULES:
+1. READ before you edit — always read_file first to understand existing code
+2. Use edit_file for targeted changes (find & replace). Use write_file for new files or full rewrites.
+3. After making changes, run_command to verify (e.g. "npx tsc --noEmit" or "npm run build")
+4. Keep changes minimal and focused — don't rewrite files unnecessarily
+5. When creating new files, ensure all imports resolve to existing files
+6. For multi-file changes, handle dependencies first (shared types, utils, then consumers)
+
+SANDBOX / CONSOLE:
+- The project runs in an E2B sandbox (Linux VM with Node.js, npm, standard Unix tools).
+- If run_command fails with a sandbox error, use start_sandbox to boot/reboot the sandbox with all files.
+- start_sandbox writes all files, runs npm install, and starts the dev server — use it when the sandbox is dead or you need a fresh environment.
+- After start_sandbox succeeds, run_command will work normally.
+- You CAN and SHOULD use run_command to verify your changes (type-check, build, lint, test).
+
+CRITICAL — ALWAYS COMMUNICATE:
+You MUST write a short text explanation BEFORE every tool call. The user sees your text and tool calls in real-time. Never call a tool without first explaining what you're about to do and why.
+
+Good example:
+"Ich schaue mir zuerst die aktuelle page.tsx an, um die bestehende Struktur zu verstehen."
+[read_file: app/page.tsx]
+"Die Seite hat bereits ein Hero-Section. Ich füge jetzt die Features-Sektion darunter hinzu."
+[edit_file: app/page.tsx]
+
+Bad example (NEVER do this):
+[read_file: app/page.tsx]
+[edit_file: app/page.tsx]
+[write_file: components/Hero.tsx]
+
+RESPONSE STYLE:
+- ALWAYS explain what you're about to do BEFORE using a tool — the user must understand your thought process
+- After each tool result, briefly state what you found or what happened
+- After completing ALL changes, write a clear summary of everything that was done
+- If something fails, explain the error, diagnose it, and fix it — don't give up
+- Use short, direct sentences. Be conversational, not robotic.
+- When creating multiple files, state the plan upfront: "Ich erstelle 4 Dateien: Hero.tsx, Features.tsx, page.tsx, und globals.css"
+${fileTreeBlock}
 ${langInstruction}`;
 }
 
@@ -1166,19 +1270,25 @@ export function vibeFilesToFileSystemTree(
  */
 export function findMissingImports(files: VibeCodeFile[]): string[] {
   // Index paths with and without extension so "@/lib/utils" matches "lib/utils.ts"
+  // Also handle src/ prefix: "src/components/Hero.tsx" should match "@/components/Hero"
   const existingBare = new Set<string>();
   for (const f of files) {
     existingBare.add(f.path);
+    // Strip src/ prefix (template files use src/, imports use @/ without src/)
+    const pathWithoutSrc = f.path.startsWith("src/") ? f.path.slice(4) : f.path;
+    existingBare.add(pathWithoutSrc);
     // Strip common extensions
     for (const ext of [".tsx", ".ts", ".jsx", ".js", ".mjs"]) {
       if (f.path.endsWith(ext)) {
         existingBare.add(f.path.slice(0, -ext.length));
+        existingBare.add(pathWithoutSrc.slice(0, -ext.length));
       }
     }
     // index files: components/ui/index.tsx → components/ui
     const base = f.path.split("/").pop() || "";
     if (base.startsWith("index.")) {
       existingBare.add(f.path.replace(/\/index\.[^/]+$/, ""));
+      existingBare.add(pathWithoutSrc.replace(/\/index\.[^/]+$/, ""));
     }
   }
 

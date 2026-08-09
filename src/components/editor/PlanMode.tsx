@@ -60,6 +60,19 @@ import { ChatContent } from "./ChatCodeBlock";
 import { PlanFontSelector } from "./PlanFontSelector";
 import { PlanSpacingSelector } from "./PlanSpacingSelector";
 import { addRawHistoryEntry, enrichHistoryEntry } from "@/lib/history";
+import { generatePlanMarkdownFromBrief } from "@/lib/brief-to-plan";
+import { loadProjectFiles } from "@/lib/project-store";
+import {
+  applyFeatureIntentsToGraph,
+  createProjectGraphFromBrief,
+  type FeatureToggle,
+  type PageCharacterPreset,
+  type ProjectGraph,
+  projectGraphToFeaturesMarkdown,
+} from "@/lib/project-graph";
+import type { ProjectPreviewState } from "@/lib/preview-session";
+import PageMiniMap from "./PageMiniMap";
+import SharedRoutePreview from "./SharedRoutePreview";
 
 // ── Types ──
 
@@ -104,6 +117,14 @@ const CARD_CONFIGS: CardConfig[] = [
     placeholder: `# Design System\n\n## Farben\n- **Primary**: #3B82F6\n- **Secondary**: #10B981\n\n## Schriften\n- Heading: Inter\n- Body: Inter`,
   },
   {
+    path: ".d3/BUSINESS.md",
+    title: "Business Fit",
+    icon: Folder,
+    color: "#F59E0B",
+    description: "Business-Bereich, Pflichtseiten, Empfehlungen, Startstrategie",
+    placeholder: `# Business Fit\n\n## Bereich\n- **Kategorie**: B2B SaaS\n- **Hauptziel**: Leads oder Trials gewinnen\n\n## Pflichtseiten\n- Home\n- Pricing\n- Kontakt\n\n## Empfehlungen\n- Case Studies frueh sichtbar machen\n- Templates zuerst, Full-Custom spaeter`,
+  },
+  {
     path: ".d3/DECISIONS.md",
     title: "Entscheidungen",
     icon: GitBranch,
@@ -133,7 +154,23 @@ const CARD_CONFIGS: CardConfig[] = [
     icon: LayoutGrid,
     color: "#06B6D4",
     description: "Welche Seiten, Sektionen pro Seite, Navigation",
-    placeholder: `# Seiten & Routen\n\n## Startseite (/)\n- Hero: Headline + CTA\n- Features: 3-Spalten Grid\n- Testimonials\n- CTA-Banner\n- Footer\n\n## Ueber uns (/about)\n- Team-Fotos\n- Company Story\n\n## Kontakt (/contact)\n- Kontaktformular\n- Karte\n\n## Navigation\n- Hauptmenue: Home, About, Contact\n- Footer-Links: Impressum, Datenschutz`,
+    placeholder: `# Seiten & Routen\n\n## Seitenbaum\n- \`/\` - Home\n- \`/services\` - Services\n- \`/contact\` - Contact\n\n## Home (/)\n- **Hero** (\`hero-split\`) - Headline + CTA\n- **Features** (\`features-bento\`) - Kernvorteile\n- **Testimonials** (\`testimonials-cards\`) - Vertrauen\n- **Footer** (\`footer-big\`) - Navigation + Legal\n\n## Weitere Seiten\n\n### /services - Services\n- **Services Grid** (\`showcase-service-cards\`) - Leistungen\n- **CTA** (\`cta-split\`) - Kontaktimpuls\n\n### /contact - Contact\n- **Kontaktformular** (\`interactive-contact\`) - Anfrage\n\n## Navigation\n- Home -> \`/\`\n- Services -> \`/services\`\n- Contact -> \`/contact\``,
+  },
+  {
+    path: ".d3/FEATURES.md",
+    title: "Features",
+    icon: ClipboardList,
+    color: "#0EA5E9",
+    description: "Aktive und geplante Funktionen fuer die Website",
+    placeholder: `# Features\n\n## Aktiv\n- [x] **Pricing** (\`pricing\`) - Preis- und Tarifdarstellung\n- [x] **Kontaktformular** (\`contact-form\`) - Leads aufnehmen\n\n## Noch moeglich\n- [ ] Blog (\`blog-cms\`)\n- [ ] Docs (\`docs-center\`)`,
+  },
+  {
+    path: ".d3/MODULES.md",
+    title: "Module",
+    icon: LayoutGrid,
+    color: "#22C55E",
+    description: "Lego-Bausteine, Templates und wiederverwendbare Abschnitte",
+    placeholder: `# Module & Templates\n\n## Aktive Baukasten-Module\n- **Hero** (\`hero-split\`) - Einstieg\n- **FAQ** (\`content-faq\`) - Einwaende abbauen\n\n## Template-Strategie\n- Start mit Basis-Template\n- Neue Seiten aus vorhandenen Modulen zusammensetzen`,
   },
   {
     path: ".d3/CONTENT.md",
@@ -150,6 +187,14 @@ const CARD_CONFIGS: CardConfig[] = [
     color: "#8B5CF6",
     description: "Framework, Libraries, Hosting, Datenbank",
     placeholder: `# Tech Stack\n\n## Frontend\n- **Framework**: Next.js 14 (App Router)\n- **Styling**: Tailwind CSS\n- **Icons**: Lucide React\n- **Animationen**: Framer Motion\n\n## Backend\n- **Auth**: Supabase Auth\n- **Datenbank**: Supabase (PostgreSQL)\n- **API**: Next.js API Routes\n\n## Hosting\n- **Platform**: Vercel\n- **Domain**: example.com\n\n## Sonstiges\n- **Analytics**: Vercel Analytics\n- **Forms**: Web3Forms / Formspree`,
+  },
+  {
+    path: ".d3/SYNC.md",
+    title: "Sync",
+    icon: RefreshCw,
+    color: "#8B5CF6",
+    description: "Wie stark Plan, Design und Code direkt verbunden sein sollen",
+    placeholder: `# Sync & Uebergabe\n\n## Betriebsmodi\n1. Template-Modus\n2. Hybrid-Modus\n3. Live-Sync\n\n## Empfehlung\n- Fuer guenstige Planung zuerst Template + Module\n- Live-Sync nur fuer freigegebene Bereiche aktivieren`,
   },
   {
     path: ".d3/FLOWS.md",
@@ -237,13 +282,118 @@ function toReadableAlpha(base: "#000000" | "#ffffff", alpha: number): string {
   return base === "#000000" ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
 }
 
+interface ParsedPlanSection {
+  label: string;
+  patternId?: string;
+  description?: string;
+}
+
+interface ParsedPlanPage {
+  name: string;
+  route: string;
+  sections: ParsedPlanSection[];
+}
+
+function normalizePlanRoute(route: string): string {
+  if (!route || route === "/") return "/";
+  return `/${route.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function slugFromRoute(route: string): string {
+  return route === "/" ? "" : route.replace(/^\//, "");
+}
+
+function slugifyFragment(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function parsePagesMarkdownStructure(content: string): ParsedPlanPage[] {
+  const pages: ParsedPlanPage[] = [];
+  let current: ParsedPlanPage | null = null;
+
+  const commit = () => {
+    if (current) pages.push(current);
+  };
+
+  for (const rawLine of content.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+
+    const namedRouteHeading = trimmed.match(/^##\s+(.+?)\s*\((\/[^)]*|\/)\)\s*$/);
+    if (namedRouteHeading) {
+      commit();
+      current = {
+        name: namedRouteHeading[1].trim(),
+        route: normalizePlanRoute(namedRouteHeading[2].trim()),
+        sections: [],
+      };
+      continue;
+    }
+
+    const routeHeading = trimmed.match(/^#{2,3}\s+(\/[^\s]*)\s*-\s*(.+)$/);
+    if (routeHeading) {
+      commit();
+      current = {
+        route: normalizePlanRoute(routeHeading[1].trim()),
+        name: routeHeading[2].trim(),
+        sections: [],
+      };
+      continue;
+    }
+
+    if (/^#{1,3}\s+/.test(trimmed)) {
+      current = null;
+      continue;
+    }
+
+    if (!current) continue;
+
+    const sectionMatch = trimmed.match(/^-\s+(?:\*\*(.+?)\*\*|(.+?))(?:\s+\(`([^`]+)`\))?(?:\s*-\s*(.+))?$/);
+    if (!sectionMatch) continue;
+
+    const label = (sectionMatch[1] ?? sectionMatch[2] ?? "").trim();
+    if (!label) continue;
+
+    current.sections.push({
+      label,
+      patternId: sectionMatch[3]?.trim(),
+      description: sectionMatch[4]?.trim(),
+    });
+  }
+
+  commit();
+  return pages;
+}
+
+function parseFeatureStateMap(content: string): Map<string, boolean> {
+  const states = new Map<string, boolean>();
+
+  for (const rawLine of content.split("\n")) {
+    const trimmed = rawLine.trim();
+    const match = trimmed.match(/^- \[(x| )\].*?\(`([^`]+)`\)/i);
+    if (!match) continue;
+    states.set(match[2].trim(), match[1].toLowerCase() === "x");
+  }
+
+  return states;
+}
+
 // ── Props ──
 
 interface Props {
   theme: "light" | "dark";
   aiModel?: string;
+  liveSyncEnabled?: boolean;
   canvasBackground?: string;
   brief?: import("@/lib/design-brief").DesignBrief;
+  graph?: ProjectGraph | null;
+  onGraphChange?: (updater: (prev: ProjectGraph) => ProjectGraph) => void;
+  previewState?: ProjectPreviewState | null;
   onBriefChange?: (updater: (prev: import("@/lib/design-brief").DesignBrief) => import("@/lib/design-brief").DesignBrief) => void;
   userId?: string | null;
   /** Central project ID — single source of truth, bypasses internal project picker */
@@ -258,9 +408,39 @@ interface Props {
   onSharedMessagesChange?: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
+const PAGE_CHARACTER_OPTIONS: Array<{ id: PageCharacterPreset; label: string; desc: string }> = [
+  { id: "saas-clean", label: "SaaS Clean", desc: "Klar, hell, conversion-fokussiert" },
+  { id: "editorial-premium", label: "Editorial", desc: "Starkes Layout, mehr Markencharakter" },
+  { id: "commerce-warm", label: "Commerce", desc: "Produktnah, vertrauensvoll, kaufstark" },
+  { id: "app-dashboard", label: "Dashboard", desc: "Tool-artig, dichter, funktionaler" },
+  { id: "luxury-dark", label: "Luxury", desc: "Dunkel, hochwertig, kontrastreich" },
+];
+
+const PAGE_STATUS_LABELS: Record<string, string> = {
+  draft: "Entwurf",
+  planned: "Geplant",
+  designed: "Designt",
+  coded: "Im Code",
+  mixed: "Hybrid",
+  custom: "Custom Code",
+};
+
+const PAGE_SOURCE_LABELS: Record<string, string> = {
+  brief: "Plan",
+  code: "Code",
+  mixed: "Plan + Code",
+};
+
+const SECTION_SOURCE_LABELS: Record<string, string> = {
+  design: "Plan",
+  code: "Code",
+  mixed: "Hybrid",
+  custom: "Custom",
+};
+
 // ── Component ──
 
-export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", canvasBackground, userId, brief, onBriefChange, onSwitchToDesign, projectId: centralProjectId, projectName, sharedMessages, sharedIsStreaming, sharedStreamingText, onSharedMessagesChange }: Props) {
+export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", liveSyncEnabled = true, canvasBackground, userId, brief, graph, onGraphChange, previewState, onBriefChange, onSwitchToDesign, projectId: centralProjectId, projectName, sharedMessages, sharedIsStreaming, sharedStreamingText, onSharedMessagesChange }: Props) {
   const isDark = theme === "dark";
   const isCentralProjectMode = Boolean(centralProjectId);
   const t = vibeTheme(theme);
@@ -302,6 +482,9 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
   const renameTitleRef = useRef<HTMLInputElement>(null);
   const d3FilesRef = useRef(d3Files);
   d3FilesRef.current = d3Files;
+  // Tracks whether the initial file load for the active project has completed
+  const [filesLoaded, setFilesLoaded] = useState(false);
+  const [activeGraphPageId, setActiveGraphPageId] = useState("home");
 
   // ── Undo / Redo (unbegrenzt, Supabase-persistiert) ──
   const undoRedo = useUndoRedo<D3File[]>({
@@ -426,18 +609,86 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
 
   // ── Load files when project changes ──
   useEffect(() => {
-    if (!activeProjectId) { setD3Files([]); setAllFiles([]); return; }
+    if (!activeProjectId) { setD3Files([]); setAllFiles([]); setFilesLoaded(false); return; }
+
+    // Reset state for new project
+    setFilesLoaded(false);
+    setAutoFillDismissed(false);
+
+    // 1. Bootstrap sofort aus localStorage (kein Warten auf API)
+    const localFiles = loadProjectFiles(activeProjectId);
+    if (localFiles && Object.keys(localFiles).length > 0) {
+      const localD3 = Object.entries(localFiles)
+        .filter(([path]) => path.startsWith(".d3/"))
+        .map(([path, content]) => ({ path, content }));
+      const localAll = Object.entries(localFiles)
+        .map(([path, content]) => ({ path, content, language: "plaintext" as const }));
+      if (localD3.length > 0) setD3Files(localD3);
+      if (localAll.length > 0) setAllFiles(localAll);
+      // Files available from localStorage → seed can run immediately
+      setFilesLoaded(true);
+    }
+
+    // 2. API als Update (Supabase hat ggf. neuere/vollständigere Daten)
     (async () => {
       try {
         const res = await authFetch(`/api/files?project_id=${activeProjectId}`);
-        if (!res.ok) return;
+        if (!res.ok) { setFilesLoaded(true); return; }
         const data = await res.json();
         const files = (data.files ?? []) as { file_name: string; content: string }[];
-        setD3Files(files.filter((f) => f.file_name.startsWith(".d3/")).map((f) => ({ path: f.file_name, content: f.content ?? "" })));
-        setAllFiles(files.map((f) => ({ path: f.file_name, content: f.content ?? "", language: "plaintext" })));
+        if (files.length > 0) {
+          const apiD3 = files.filter((f) => f.file_name.startsWith(".d3/")).map((f) => ({ path: f.file_name, content: f.content ?? "" }));
+          // Only overwrite d3Files if the API actually returned .d3/ files — prevents
+          // clearing the locally-seeded cards when the API only returns code files
+          if (apiD3.length > 0) {
+            setD3Files(apiD3);
+          }
+          setAllFiles(files.map((f) => ({ path: f.file_name, content: f.content ?? "", language: "plaintext" })));
+        }
       } catch (err) { console.error("Failed to load files:", err); }
+      // Mark loaded after API call completes (even for empty projects)
+      setFilesLoaded(true);
     })();
   }, [activeProjectId]);
+
+  // ── Brief → leere .d3/ Files befüllen (bei Projekt-Wechsel / Template-Load) ──
+  // Schreibt nur wenn die Datei leer ist — schützt User-Content.
+  const briefSeedDoneRef = useRef<string>("");
+  useEffect(() => {
+    if (!brief || !activeProjectId) return;
+    // Warten bis File-Loading abgeschlossen ist (auch für leere Projekte)
+    if (!filesLoaded) return;
+    // Nur einmal pro Projekt (nicht bei jeder Brief-Änderung)
+    if (briefSeedDoneRef.current === activeProjectId) return;
+    briefSeedDoneRef.current = activeProjectId;
+
+    const toSeed = generatePlanMarkdownFromBrief(brief);
+
+    const filesToPost: Array<{ path: string; content: string }> = [];
+    setD3Files((prev) => {
+      let next = [...prev];
+      for (const { path, content } of toSeed) {
+        const existing = next.find((f) => f.path === path);
+        if (!existing || existing.content.trim() === "") {
+          if (existing) {
+            next = next.map((f) => (f.path === path ? { ...f, content } : f));
+          } else {
+            next = [...next, { path, content }];
+          }
+          filesToPost.push({ path, content });
+        }
+      }
+      return next;
+    });
+
+    if (filesToPost.length > 0) {
+      authFetch("/api/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: activeProjectId, files: filesToPost }),
+      }).catch(() => {});
+    }
+  }, [brief, activeProjectId, filesLoaded]);
 
   // ── Close dropdowns on outside click ──
   useEffect(() => {
@@ -496,6 +747,96 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     });
   }, [onBriefChange]);
 
+  const syncPagesToBrief = useCallback((pagesContent: string) => {
+    if (!onBriefChange) return;
+    const parsedPages = parsePagesMarkdownStructure(pagesContent);
+    if (parsedPages.length === 0) return;
+
+    onBriefChange((prev) => {
+      const existingPageMap = new Map<string, {
+        id: string;
+        name: string;
+        slug: string;
+        sections: typeof prev.sections;
+      }>([
+        ["/", { id: "home", name: "Home", slug: "", sections: prev.sections }],
+        ...((prev.additionalPages ?? []).map((page) => [
+          normalizePlanRoute(page.slug),
+          { id: page.id, name: page.name, slug: page.slug, sections: page.sections },
+        ] as const)),
+      ]);
+
+      const toSection = (
+        route: string,
+        section: ParsedPlanSection,
+        index: number,
+        existingSections: typeof prev.sections
+      ) => {
+        const existing = existingSections.find((candidate) =>
+          (section.patternId && candidate.patternId === section.patternId) ||
+          candidate.label.toLowerCase() === section.label.toLowerCase()
+        );
+        const patternId = section.patternId ?? existing?.patternId;
+        if (!patternId) return null;
+        return {
+          id: existing?.id ?? `${slugFromRoute(route) || "home"}_${index}_${slugifyFragment(section.label) || "section"}`,
+          patternId,
+          label: section.label,
+          description: section.description ?? existing?.description,
+          animation: existing?.animation ?? "fade-up",
+        };
+      };
+
+      const homePage = parsedPages.find((page) => page.route === "/");
+      const nextHomeSections = homePage
+        ? homePage.sections
+            .map((section, index) => toSection("/", section, index, prev.sections))
+            .filter((section): section is NonNullable<ReturnType<typeof toSection>> => Boolean(section))
+        : prev.sections;
+
+      const nextAdditionalPages = parsedPages
+        .filter((page) => page.route !== "/")
+        .map((page) => {
+          const existing = existingPageMap.get(page.route);
+          const existingSections = existing?.sections ?? [];
+          return {
+            id: existing?.id ?? `page_${slugFromRoute(page.route) || slugifyFragment(page.name) || "page"}`,
+            name: page.name,
+            slug: slugFromRoute(page.route) || slugifyFragment(page.name),
+            sections: page.sections
+              .map((section, index) => toSection(page.route, section, index, existingSections))
+              .filter((section): section is NonNullable<ReturnType<typeof toSection>> => Boolean(section)),
+          };
+        });
+
+      return {
+        ...prev,
+        sections: nextHomeSections,
+        additionalPages: nextAdditionalPages,
+      };
+    });
+  }, [onBriefChange]);
+
+  const syncFeaturesToGraph = useCallback((featureContent: string) => {
+    if (!onGraphChange) return;
+    const nextStates = parseFeatureStateMap(featureContent);
+    if (nextStates.size === 0) return;
+
+    onGraphChange((prev) => {
+      const intents = prev.features.flatMap((feature) => {
+        const nextEnabled = nextStates.get(feature.id);
+        if (nextEnabled === undefined || nextEnabled === feature.enabled) return [];
+        return [{
+          action: nextEnabled ? "add" as const : "remove" as const,
+          featureId: feature.id,
+          raw: `features markdown ${feature.id}`,
+        }];
+      });
+
+      return intents.length > 0 ? applyFeatureIntentsToGraph(prev, intents) : prev;
+    });
+  }, [onGraphChange]);
+
   const saveFile = useCallback((path: string, content: string) => {
     if (!activeProjectId) return;
     // Record undo snapshot before mutation
@@ -510,13 +851,15 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     });
     // Sync STYLE.md → DesignBrief
     if (path === ".d3/STYLE.md") syncStyleToBrief(content);
+    if (path === ".d3/PAGES.md") syncPagesToBrief(content);
+    if (path === ".d3/FEATURES.md") syncFeaturesToGraph(content);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
         await authFetch("/api/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: activeProjectId, files: [{ path, content }] }) });
       } catch (err) { console.error("Save failed:", err); }
     }, 600);
-  }, [activeProjectId, undoRedo, syncStyleToBrief]);
+  }, [activeProjectId, undoRedo, syncStyleToBrief, syncPagesToBrief, syncFeaturesToGraph]);
 
   const handleToggleTodo = useCallback((lineIndex: number) => {
     const content = getFileContent(".d3/TODOS.md");
@@ -545,6 +888,68 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
   const activeProject = projects.find((p) => p.id === activeProjectId);
   const displayProjectName = projectName ?? activeProject?.name ?? "Mein Projekt";
   const hasProject = Boolean(activeProjectId || centralProjectId);
+  const projectGraph = useMemo(() => {
+    if (graph) return graph;
+    if (!brief) return null;
+    return createProjectGraphFromBrief(brief);
+  }, [graph, brief]);
+  const activeGraphPage = useMemo(() => (
+    projectGraph?.pages.find((page) => page.id === activeGraphPageId) ??
+    projectGraph?.pages.find((page) => page.route === "/") ??
+    projectGraph?.pages[0] ??
+    null
+  ), [projectGraph, activeGraphPageId]);
+  const hasLivePreview = Boolean(previewState?.url && previewState.status !== "error");
+  const previewStatusLabel = hasLivePreview
+    ? "Live-Vorschau"
+    : previewState?.status && ["booting", "installing", "starting", "running"].includes(previewState.status)
+      ? "Preview startet"
+      : activeGraphPage?.sections.length
+        ? "Wireframe"
+        : "Layout fehlt";
+  const enabledFeatureCount = projectGraph?.features.filter((feature) => feature.enabled).length ?? 0;
+  const suggestedFeatureIds = useMemo<FeatureToggle["id"][]>(() => {
+    if (!projectGraph || !activeGraphPage) return [];
+
+    const candidates: FeatureToggle["id"][] =
+      activeGraphPage.kind === "app"
+        ? ["auth", "dashboard-shell", "faq"]
+        : activeGraphPage.route === "/"
+          ? ["pricing", "testimonials", "contact-form"]
+          : ["contact-form", "faq", "newsletter"];
+
+    return candidates.filter((featureId) => {
+      const candidate = projectGraph.features.find((feature) => feature.id === featureId);
+      return candidate && !candidate.enabled;
+    });
+  }, [projectGraph, activeGraphPage]);
+  const suggestedFeatures = useMemo(() => {
+    if (!projectGraph) return [];
+    return suggestedFeatureIds
+      .map((featureId) => projectGraph.features.find((feature) => feature.id === featureId))
+      .filter((feature): feature is FeatureToggle => Boolean(feature));
+  }, [projectGraph, suggestedFeatureIds]);
+  const activeFeatures = useMemo(() => (
+    projectGraph?.features.filter((feature) => feature.enabled).slice(0, 6) ?? []
+  ), [projectGraph]);
+  const showPageSetupActions = Boolean(activeGraphPage && !hasLivePreview && activeGraphPage.sections.length === 0);
+
+  useEffect(() => {
+    if (!projectGraph) return;
+    const featureMarkdown = projectGraphToFeaturesMarkdown(projectGraph);
+    setD3Files((prev) => {
+      const existing = prev.find((file) => file.path === ".d3/FEATURES.md");
+      if (existing?.content === featureMarkdown) return prev;
+      if (existing) {
+        return prev.map((file) => (
+          file.path === ".d3/FEATURES.md"
+            ? { ...file, content: featureMarkdown }
+            : file
+        ));
+      }
+      return [...prev, { path: ".d3/FEATURES.md", content: featureMarkdown }];
+    });
+  }, [projectGraph]);
 
   const switchProject = useCallback((id: string) => {
     setActiveProjectId(id);
@@ -552,6 +957,34 @@ export default function PlanMode({ theme, aiModel = "claude-sonnet-4-20250514", 
     setShowProjectPicker(false);
     setEditingCard(null);
   }, []);
+
+  useEffect(() => {
+    if (!projectGraph || projectGraph.pages.length === 0) return;
+    if (!projectGraph.pages.some((page) => page.id === activeGraphPageId)) {
+      setActiveGraphPageId(projectGraph.pages.find((page) => page.route === "/")?.id ?? projectGraph.pages[0].id);
+    }
+  }, [projectGraph, activeGraphPageId]);
+
+  const handleFeatureToggle = useCallback((featureId: FeatureToggle["id"], nextEnabled: boolean) => {
+    if (!onGraphChange) return;
+    onGraphChange((prev) => applyFeatureIntentsToGraph(prev, [{
+      action: nextEnabled ? "add" : "remove",
+      featureId,
+      raw: `${nextEnabled ? "add" : "remove"} ${featureId}`,
+    }]));
+  }, [onGraphChange]);
+
+  const handlePageCharacterChange = useCallback((nextCharacter: PageCharacterPreset) => {
+    if (!onGraphChange || !activeGraphPage) return;
+    onGraphChange((prev) => ({
+      ...prev,
+      pages: prev.pages.map((page) =>
+        page.id === activeGraphPage.id
+          ? { ...page, character: nextCharacter, status: page.status === "draft" ? "planned" : page.status }
+          : page
+      ),
+    }));
+  }, [activeGraphPage, onGraphChange]);
 
   // ── Rename project inline ──
   const startRenaming = useCallback(() => {
@@ -1091,74 +1524,621 @@ Deutsch. Professionell. Konkret.`;
         <div className="flex-1 overflow-y-auto px-8 py-6 pb-24">
           {/* Nike-style project title — click to rename */}
           {hasProject && (
-            <div className="max-w-[1400px] mx-auto mb-8 select-none relative" style={{ padding: "16px 8px" }}>
-              <CornerLines isDark={isDark} />
-              <div className="flex items-end gap-6">
-                {isRenamingTitle ? (
-                  <input
-                    ref={renameTitleRef}
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={() => void commitRename()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void commitRename();
-                      if (e.key === "Escape") setIsRenamingTitle(false);
-                    }}
-                    autoFocus
-                    className="outline-none bg-transparent w-full"
-                    style={{
-                      fontSize: "clamp(3rem, 8vw, 7rem)",
-                      fontWeight: 900,
-                      letterSpacing: "-0.04em",
-                      lineHeight: 0.85,
-                      color: "var(--d3-text)",
-                      textTransform: "uppercase",
-                      margin: 0,
-                      fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif",
-                      borderBottom: "3px solid var(--d3-text)",
-                    }}
-                  />
-                ) : (
-                  <h1
-                    onClick={!isCentralProjectMode ? startRenaming : undefined}
-                    className={!isCentralProjectMode ? "cursor-pointer hover:opacity-70 transition-opacity" : ""}
-                    title={!isCentralProjectMode ? "Klicken zum Umbenennen" : undefined}
-                    style={{
-                      fontSize: "clamp(3rem, 8vw, 7rem)",
-                      fontWeight: 900,
-                      letterSpacing: "-0.04em",
-                      lineHeight: 0.85,
-                      color: "var(--d3-text)",
-                      textTransform: "uppercase",
-                      margin: 0,
-                      fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif",
-                    }}
-                  >
-                    {displayProjectName}
-                  </h1>
-                )}
-                <div style={{ paddingBottom: "0.5rem" }}>
-                  <span
-                    style={{
-                      fontSize: "0.625rem",
-                      fontWeight: 600,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "var(--d3-text-tertiary)",
-                    }}
-                  >
-                    {stats.filledCards}/{stats.totalCards} Specs · {stats.todosDone}/{stats.todosOpen + stats.todosDone} Tasks
-                  </span>
+            <div className="max-w-[1480px] mx-auto mb-6 select-none">
+              <div
+                className="glass-heavy relative overflow-hidden"
+                style={{
+                  borderRadius: 28,
+                  padding: 24,
+                  background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(255,255,255,0.82) 42%, rgba(16,185,129,0.08))",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "radial-gradient(circle at top right, rgba(59,130,246,0.16), transparent 34%)",
+                    pointerEvents: "none",
+                  }}
+                />
+                <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                  <div className="min-w-0">
+                    <div
+                      style={{
+                        fontSize: "0.62rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 10,
+                      }}
+                    >
+                      Plan Workspace
+                    </div>
+
+                    {isRenamingTitle ? (
+                      <input
+                        ref={renameTitleRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => void commitRename()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void commitRename();
+                          if (e.key === "Escape") setIsRenamingTitle(false);
+                        }}
+                        autoFocus
+                        className="outline-none bg-transparent w-full"
+                        style={{
+                          fontSize: "clamp(2.2rem, 5vw, 4.75rem)",
+                          fontWeight: 900,
+                          letterSpacing: "-0.05em",
+                          lineHeight: 0.92,
+                          color: "var(--d3-text)",
+                          margin: 0,
+                          borderBottom: "2px solid var(--d3-text)",
+                        }}
+                      />
+                    ) : (
+                      <h1
+                        onClick={!isCentralProjectMode ? startRenaming : undefined}
+                        className={!isCentralProjectMode ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}
+                        title={!isCentralProjectMode ? "Klicken zum Umbenennen" : undefined}
+                        style={{
+                          fontSize: "clamp(2.2rem, 5vw, 4.75rem)",
+                          fontWeight: 900,
+                          letterSpacing: "-0.05em",
+                          lineHeight: 0.92,
+                          color: "var(--d3-text)",
+                          margin: 0,
+                        }}
+                      >
+                        {displayProjectName}
+                      </h1>
+                    )}
+
+                    <p
+                      style={{
+                        marginTop: 12,
+                        maxWidth: 760,
+                        fontSize: "0.88rem",
+                        lineHeight: 1.7,
+                        color: "var(--d3-text-secondary)",
+                      }}
+                    >
+                      Hier planst du Seiten, Charakter und Funktionen in einer visuellen Arbeitsflaeche. Design und Coding koennen direkt mitziehen oder bewusst getrennt bleiben.
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {[
+                        `${stats.filledCards}/${stats.totalCards} Specs`,
+                        `${stats.todosDone}/${stats.todosOpen + stats.todosDone} Tasks`,
+                        `${projectGraph?.pages.length ?? 0} Seiten`,
+                        `${enabledFeatureCount} Features aktiv`,
+                        previewStatusLabel,
+                        liveSyncEnabled ? "Live Sync an" : "Live Sync aus",
+                      ].map((chip) => (
+                        <span
+                          key={chip}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "8px 12px",
+                            borderRadius: 999,
+                            border: "1px solid var(--d3-glass-border)",
+                            background: "rgba(255,255,255,0.62)",
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            color: "var(--d3-text-secondary)",
+                          }}
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 xl:max-w-[360px] xl:justify-end">
+                    <button
+                      onClick={() => startEditing(".d3/PAGES.md")}
+                      className="flex items-center gap-2 px-4 py-2.5 transition-all hover:opacity-85"
+                      style={{
+                        borderRadius: 999,
+                        border: "1px solid var(--d3-glass-border)",
+                        background: "rgba(255,255,255,0.7)",
+                        color: "var(--d3-text)",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Route size={14} />
+                      Seitenplan
+                    </button>
+                    <button
+                      onClick={() => startEditing(".d3/CONTENT.md")}
+                      className="flex items-center gap-2 px-4 py-2.5 transition-all hover:opacity-85"
+                      style={{
+                        borderRadius: 999,
+                        border: "1px solid var(--d3-glass-border)",
+                        background: "rgba(255,255,255,0.7)",
+                        color: "var(--d3-text)",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Edit3 size={14} />
+                      Copy
+                    </button>
+                    {onSwitchToDesign && (
+                      <button
+                        onClick={onSwitchToDesign}
+                        className="flex items-center gap-2 px-4 py-2.5 transition-all hover:opacity-85"
+                        style={{
+                          borderRadius: 999,
+                          border: "1px solid rgba(99,102,241,0.18)",
+                          background: "rgba(99,102,241,0.1)",
+                          color: "#4f46e5",
+                          fontSize: "0.72rem",
+                          fontWeight: 800,
+                        }}
+                      >
+                        <Palette size={14} />
+                        Design oeffnen
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div
-                style={{
-                  height: 3,
-                  background: "var(--d3-text)",
-                  marginTop: 12,
-                  opacity: 0.08,
-                }}
-              />
+            </div>
+          )}
+
+          {hasProject && projectGraph && activeGraphPage && brief && (
+            <div className="max-w-[1480px] mx-auto mb-8">
+              <div className="grid grid-cols-1 xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1.22fr)_320px] gap-4 items-start">
+                <div
+                  className="glass-heavy"
+                  style={{
+                    borderRadius: 24,
+                    padding: 16,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "12px 12px 0",
+                      borderBottom: "1px solid var(--d3-border-subtle)",
+                      margin: "0 -16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.62rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        margin: "0 16px 6px",
+                      }}
+                    >
+                      Seitenstruktur
+                    </div>
+                    <div style={{ fontSize: "0.76rem", color: "var(--d3-text-secondary)", lineHeight: 1.6, margin: "0 16px 12px" }}>
+                      Waehle eine Route in der Sitemap. Die Mitte zeigt sofort Vorschau, Aufbau und Probleme fuer genau diese Seite.
+                    </div>
+                  </div>
+                  <PageMiniMap
+                    graph={projectGraph}
+                    activePageId={activeGraphPage.id}
+                    onSelectPage={setActiveGraphPageId}
+                    onToggleFeature={handleFeatureToggle}
+                    showFeatures
+                    title="Projekt-Navigation"
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  <div
+                    className="glass-heavy"
+                    style={{
+                      borderRadius: 24,
+                      padding: 16,
+                    }}
+                  >
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "0.62rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.14em",
+                            textTransform: "uppercase",
+                            color: "var(--d3-text-tertiary)",
+                            marginBottom: 8,
+                          }}
+                        >
+                          Aktive Seite
+                        </div>
+                        <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "var(--d3-text)" }}>
+                          {activeGraphPage.name}
+                        </div>
+                        <div style={{ fontSize: "0.76rem", color: "var(--d3-text-secondary)", marginTop: 6, lineHeight: 1.6 }}>
+                          Route <span style={{ fontFamily: "monospace" }}>{activeGraphPage.route}</span> • Quelle {PAGE_SOURCE_LABELS[activeGraphPage.source] ?? activeGraphPage.source} • Status {PAGE_STATUS_LABELS[activeGraphPage.status] ?? activeGraphPage.status}
+                        </div>
+                        <div style={{ fontSize: "0.76rem", color: "var(--d3-text-secondary)", marginTop: 8, lineHeight: 1.6 }}>
+                          {hasLivePreview
+                            ? "Die echte Route ist bereits verfuegbar und wird hier direkt gespiegelt."
+                            : activeGraphPage.sections.length > 0
+                              ? "Noch keine Live-App? Kein Problem. Der Plan zeigt stattdessen den visuellen Seitenaufbau als Wireframe."
+                              : "Diese Route braucht noch ihren ersten visuellen Aufbau, damit die Vorschau wirklich hilfreich wird."}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 xl:max-w-[320px] xl:justify-end">
+                        {[
+                          previewStatusLabel,
+                          `${activeGraphPage.sections.length} Sektionen`,
+                          `${activeGraphPage.lockedBlocks.length} Code-Bloecke`,
+                        ].map((item) => (
+                          <span
+                            key={item}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "8px 11px",
+                              borderRadius: 999,
+                              border: "1px solid var(--d3-glass-border)",
+                              background: "var(--d3-surface)",
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: "var(--d3-text-secondary)",
+                            }}
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {showPageSetupActions && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          padding: 14,
+                          borderRadius: 18,
+                          border: "1px solid rgba(99,102,241,0.16)",
+                          background: "rgba(99,102,241,0.06)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: "0.76rem", fontWeight: 800, color: "var(--d3-text)", marginBottom: 5 }}>
+                            Schnellstart fuer diese Seite
+                          </div>
+                          <div style={{ fontSize: "0.72rem", color: "var(--d3-text-secondary)", lineHeight: 1.6 }}>
+                            Lege zuerst Struktur fest, dann wird die Vorschau direkt sinnvoll. Du kannst das im Design-Modus oder direkt ueber die Plan-Dateien starten.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => startEditing(".d3/PAGES.md")}
+                            className="flex items-center gap-2 px-4 py-2 transition-all hover:opacity-85"
+                            style={{
+                              borderRadius: 999,
+                              border: "1px solid var(--d3-glass-border)",
+                              background: "rgba(255,255,255,0.72)",
+                              color: "var(--d3-text)",
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                            }}
+                          >
+                            <Route size={13} />
+                            Seitenstruktur bearbeiten
+                          </button>
+                          <button
+                            onClick={() => startEditing(".d3/CONTENT.md")}
+                            className="flex items-center gap-2 px-4 py-2 transition-all hover:opacity-85"
+                            style={{
+                              borderRadius: 999,
+                              border: "1px solid var(--d3-glass-border)",
+                              background: "rgba(255,255,255,0.72)",
+                              color: "var(--d3-text)",
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                            }}
+                          >
+                            <Edit3 size={13} />
+                            Copy vorbereiten
+                          </button>
+                          {onSwitchToDesign && (
+                            <button
+                              onClick={onSwitchToDesign}
+                              className="flex items-center gap-2 px-4 py-2 transition-all hover:opacity-85"
+                              style={{
+                                borderRadius: 999,
+                                border: "1px solid rgba(99,102,241,0.18)",
+                                background: "rgba(99,102,241,0.12)",
+                                color: "#4f46e5",
+                                fontSize: "0.7rem",
+                                fontWeight: 800,
+                              }}
+                            >
+                              <Palette size={13} />
+                              In Design weiter
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <SharedRoutePreview
+                    brief={brief}
+                    graph={projectGraph}
+                    activePageId={activeGraphPage.id}
+                    previewState={previewState}
+                    height={showPageSetupActions ? 520 : 620}
+                  />
+                </div>
+
+                <div
+                  className="glass-heavy xl:col-span-2 2xl:col-span-1"
+                  style={{
+                    borderRadius: 24,
+                    padding: 16,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Seiten-Inspector
+                    </div>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--d3-text)" }}>
+                      {activeGraphPage.name}
+                    </div>
+                    <div style={{ fontSize: "0.68rem", color: "var(--d3-text-secondary)", marginTop: 4 }}>
+                      Route <span style={{ fontFamily: "monospace" }}>{activeGraphPage.route}</span> • Status {PAGE_STATUS_LABELS[activeGraphPage.status] ?? activeGraphPage.status}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Seiten-Charakter
+                    </div>
+                    <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                      {PAGE_CHARACTER_OPTIONS.map((option) => {
+                        const active = activeGraphPage.character === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => handlePageCharacterChange(option.id)}
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "space-between",
+                              gap: 4,
+                              minHeight: 92,
+                              padding: "12px 12px 10px",
+                              borderRadius: 16,
+                              border: active ? "1px solid rgba(99,102,241,0.32)" : "1px solid var(--d3-glass-border)",
+                              background: active
+                                ? "linear-gradient(180deg, rgba(99,102,241,0.12), rgba(99,102,241,0.05))"
+                                : "linear-gradient(180deg, var(--d3-surface), rgba(255,255,255,0.42))",
+                              textAlign: "left",
+                              cursor: onGraphChange ? "pointer" : "default",
+                            }}
+                          >
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--d3-text)" }}>{option.label}</span>
+                            <span style={{ fontSize: "0.62rem", color: "var(--d3-text-secondary)", lineHeight: 1.5 }}>{option.desc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Umsetzung
+                    </div>
+                    <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 14,
+                          background: "var(--d3-surface)",
+                          border: "1px solid var(--d3-glass-border)",
+                        }}
+                      >
+                        <div style={{ fontSize: "0.62rem", color: "var(--d3-text-tertiary)", marginBottom: 4 }}>Visuelle Sektionen</div>
+                        <div style={{ fontSize: "0.82rem", color: "var(--d3-text)", fontWeight: 700 }}>{activeGraphPage.sections.length}</div>
+                      </div>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 14,
+                          background: "var(--d3-surface)",
+                          border: "1px solid var(--d3-glass-border)",
+                        }}
+                      >
+                        <div style={{ fontSize: "0.62rem", color: "var(--d3-text-tertiary)", marginBottom: 4 }}>Code-Bloecke</div>
+                        <div style={{ fontSize: "0.82rem", color: "var(--d3-text)", fontWeight: 700 }}>{activeGraphPage.lockedBlocks.length}</div>
+                        {activeGraphPage.lockedBlocks[0] && (
+                          <div style={{ fontSize: "0.64rem", color: "var(--d3-text-secondary)", marginTop: 6, lineHeight: 1.5 }}>
+                            {activeGraphPage.lockedBlocks[0].reason}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Seitenaufbau
+                    </div>
+                    {activeGraphPage.sections.length > 0 ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {activeGraphPage.sections.slice(0, 5).map((section) => (
+                          <div
+                            key={section.id}
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 14,
+                              background: "var(--d3-surface)",
+                              border: "1px solid var(--d3-glass-border)",
+                            }}
+                          >
+                            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--d3-text)" }}>{section.label}</div>
+                            <div style={{ fontSize: "0.62rem", color: "var(--d3-text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
+                              {SECTION_SOURCE_LABELS[section.source] ?? section.source}
+                              {section.description ? ` • ${section.description}` : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: "12px 14px",
+                          borderRadius: 16,
+                          background: "rgba(148,163,184,0.08)",
+                          border: "1px solid var(--d3-glass-border)",
+                          fontSize: "0.7rem",
+                          lineHeight: 1.6,
+                          color: "var(--d3-text-secondary)",
+                        }}
+                      >
+                        Noch keine visuellen Sektionen vorhanden. Lege zuerst den Seitenaufbau fest, dann wird die Vorschau sofort klarer und nutzbarer.
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.14em",
+                        textTransform: "uppercase",
+                        color: "var(--d3-text-tertiary)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Funktionen
+                    </div>
+
+                    {suggestedFeatures.length > 0 && onGraphChange ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {suggestedFeatures.map((feature) => (
+                          <button
+                            key={feature.id}
+                            onClick={() => handleFeatureToggle(feature.id, true)}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              padding: "10px 12px",
+                              borderRadius: 14,
+                              border: "1px solid rgba(99,102,241,0.16)",
+                              background: "rgba(99,102,241,0.06)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--d3-text)" }}>{feature.label}</div>
+                              <div style={{ fontSize: "0.62rem", color: "var(--d3-text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
+                                {feature.description}
+                              </div>
+                            </div>
+                            <Plus size={14} style={{ color: "#4f46e5", flexShrink: 0 }} />
+                          </button>
+                        ))}
+                      </div>
+                    ) : activeFeatures.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {activeFeatures.map((feature) => (
+                          <span
+                            key={feature.id}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "8px 10px",
+                              borderRadius: 999,
+                              background: "rgba(34,197,94,0.1)",
+                              border: "1px solid rgba(34,197,94,0.14)",
+                              color: "#15803d",
+                              fontSize: "0.64rem",
+                              fontWeight: 700,
+                            }}
+                          >
+                            <CheckCircle size={12} />
+                            {feature.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.7rem", color: "var(--d3-text-secondary)", lineHeight: 1.6 }}>
+                        Noch keine Funktionen aktiviert. Nutze die Sitemap links oder fuege hier passende Bausteine hinzu.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: "auto", fontSize: "0.68rem", color: "var(--d3-text-secondary)", lineHeight: 1.6 }}>
+                    Multi-Page wird hier zuerst visuell geplant. Die Karten darunter bleiben weiterhin die dokumentierte Tiefe fuer Copy, Technik und Entscheidungen.
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1295,7 +2275,16 @@ Deutsch. Professionell. Konkret.`;
             </motion.div>
           )}
 
-          <div className="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 stagger-children">
+          <div className="max-w-[1480px] mx-auto mb-4">
+            <div style={{ fontSize: "0.62rem", fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--d3-text-tertiary)", marginBottom: 8 }}>
+              Projekt-Dokumentation
+            </div>
+            <div style={{ fontSize: "0.78rem", color: "var(--d3-text-secondary)", lineHeight: 1.6 }}>
+              Diese Karten bleiben die tiefe Dokumentation fuer Content, Stil, Entscheidungen und Technik. Der visuelle Workspace oben ist jetzt dein schneller Einstieg.
+            </div>
+          </div>
+
+          <div className="max-w-[1480px] mx-auto grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 stagger-children">
             {CARD_CONFIGS.map((config) => {
               const content = getFileContent(config.path);
               const isEmpty = !content.trim();

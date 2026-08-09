@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { TOKEN_PRESETS } from "@/lib/design-tokens";
+import { loadEnv } from "@/lib/load-env";
+loadEnv();
 import {
   BlockType,
   BlockVariant,

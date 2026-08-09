@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { buildVibeCodeSystemPrompt, buildFileContext, type VibeCodeFile, type ChatLanguage, type ChatRoleId, type UserLevelId, type ChatMode } from "@/lib/vibe-code";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadEnv } from "@/lib/load-env";
+loadEnv();
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -169,6 +171,15 @@ export async function POST(req: NextRequest) {
     let ctx = "\n\nRUNTIME CONTEXT (current state of the user's environment — use this to diagnose issues):";
     if (runtimeContext.sandboxStatus) {
       ctx += `\n- Sandbox Status: ${runtimeContext.sandboxStatus}`;
+      if (runtimeContext.sandboxStatus === "not_started") {
+        ctx += `\n\nSANDBOX NOT STARTED YET:
+The preview sandbox has not been started. This happens automatically when files are loaded.
+If the user asks to "start preview", "starte vorschau", "zeig mir die Preview", or similar:
+- DO NOT regenerate existing code
+- Tell the user the sandbox is starting automatically in the background
+- If it doesn't start, suggest clicking the "Neu laden" (refresh) button in the preview panel
+- NEVER generate stub files or placeholder components when real files already exist`;
+      }
     }
     if (runtimeContext.previewUrl && runtimeContext.previewUrl !== "none") {
       ctx += `\n- Preview URL: ${runtimeContext.previewUrl}`;
@@ -212,6 +223,20 @@ Analyze the error stack trace. Then:
         ctx += `\n\nSYNTAX ERROR DETECTED:
 Find the file and line from the error, fix the syntax immediately, and output the corrected file using ===FILE: path=== markers.`;
       }
+      if (
+        (term.includes("enoent") && term.includes("package.json")) ||
+        term.includes("exit status 254") ||
+        term.includes("npm error enoent") ||
+        (term.includes("no such file or directory") && term.includes("package.json"))
+      ) {
+        ctx += `\n\nSANDBOX INFRASTRUCTURE ERROR DETECTED:
+The error "ENOENT: no such file or directory, open '/home/user/package.json'" or "exit status 254" is a SANDBOX BOOT FAILURE — it is NOT a code problem.
+This means the E2B sandbox failed to initialize its working directory correctly.
+DO NOT attempt to regenerate package.json or any other files.
+DO NOT output any ===FILE: ...=== blocks.
+Instead, tell the user in 1-2 sentences:
+"Die Sandbox hatte einen Startfehler (exit 254 / ENOENT). Das ist kein Code-Fehler — klicke im Preview-Panel auf 'Neu starten' um die Sandbox neu zu booten."`;
+      }
     }
     if (runtimeContext.designBrief) {
       ctx += `\n\n${runtimeContext.designBrief}`;
@@ -231,7 +256,9 @@ Find the file and line from the error, fix the syntax immediately, and output th
 - NEVER ask generic questions like "Was funktioniert nicht?" when errors are clearly visible in the terminal.
 - ONLY output files that are directly needed to fix the problem. Do NOT output .d3/ documentation files unless the user explicitly asks for them.
 - Do NOT create new files that don't already exist unless absolutely necessary for a fix. Focus on modifying existing files only.
-- Keep your response SHORT and focused. Fix the actual error, explain briefly, done.`;
+- Keep your response SHORT and focused. Fix the actual error, explain briefly, done.
+- CRITICAL: If the FILE TREE shows existing project files (src/app/page.tsx, src/components/*, etc.), the project is ALREADY GENERATED. Do NOT regenerate or overwrite existing code unless the user explicitly asks for changes. The sandbox starts automatically — just tell the user to wait.
+- When the user asks to "start preview", "starte vorschau", "zeig mir die Preview", or "kannst du die Vorschau starten": inform them the sandbox is booting automatically and should appear in the preview panel shortly. Do NOT output any code files.`;
     systemPrompt += ctx;
   }
 

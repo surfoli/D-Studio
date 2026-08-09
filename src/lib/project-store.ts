@@ -3,6 +3,7 @@
 // All modes (Plan, Design, Build, History) read from and write to this store.
 
 import type { DesignBrief } from "./design-brief";
+import type { ProjectGraph } from "./project-graph";
 import { createDesignBrief, saveDesignBrief, loadDesignBrief } from "./design-brief";
 import { saveHistory } from "./history";
 
@@ -23,6 +24,7 @@ const ACTIVE_KEY = "d3studio.v2.active";
 const BRIEF_KEY_PREFIX = "d3studio.brief.";
 const HISTORY_KEY_PREFIX = "d3studio.history.";
 const FILES_KEY_PREFIX = "d3studio.files.";
+const GRAPH_KEY_PREFIX = "d3studio.graph.";
 
 // ── Helpers ──
 
@@ -82,6 +84,22 @@ export function saveProjectBrief(projectId: string, brief: DesignBrief): void {
   } catch {}
 }
 
+export function loadProjectGraph(projectId: string): ProjectGraph | null {
+  try {
+    const raw = localStorage.getItem(GRAPH_KEY_PREFIX + projectId);
+    if (!raw) return null;
+    return JSON.parse(raw) as ProjectGraph;
+  } catch {
+    return null;
+  }
+}
+
+export function saveProjectGraph(projectId: string, graph: ProjectGraph): void {
+  try {
+    localStorage.setItem(GRAPH_KEY_PREFIX + projectId, JSON.stringify(graph));
+  } catch {}
+}
+
 // ── Per-project Files (Build mode) ──
 
 export function loadProjectFiles(projectId: string): Record<string, string> | null {
@@ -132,6 +150,7 @@ export function deleteProject(id: string): void {
     saveProjectList(projects);
     localStorage.removeItem(BRIEF_KEY_PREFIX + id);
     localStorage.removeItem(FILES_KEY_PREFIX + id);
+    localStorage.removeItem(GRAPH_KEY_PREFIX + id);
     localStorage.removeItem(HISTORY_KEY_PREFIX + id);
 
     // If deleted was active, switch to next

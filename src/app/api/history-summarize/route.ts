@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadEnv } from "@/lib/load-env";
+loadEnv();
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
